@@ -1,4 +1,4 @@
-# Stpa Remuxer v2.0.0
+# Remuxer v2.0.0
 
 A Python and Tkinter app for remuxing MKV to MP4/MOV without re-encoding, preserving quality. It fixes VFR issues for editing compatibility with DaVinci Resolve and Adobe Premiere Pro.
 
