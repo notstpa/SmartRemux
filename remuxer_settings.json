@@ -1,0 +1,14 @@
+{
+  "auto_start_remux": true,
+  "include_audio": true,
+  "file_action": "move",
+  "output_format": ".mp4",
+  "validate_files": true,
+  "preserve_timestamps": true,
+  "preview_commands": false,
+  "overwrite_existing": false,
+  "use_timescale": true,
+  "timescale_is_source": true,
+  "timescale_preset": "30",
+  "timescale_custom": ""
+}
