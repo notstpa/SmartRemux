@@ -21,7 +21,7 @@ Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank"
 
 ### StpaRemuxer-Lite
 - **Included:** Compiled Python app (no FFmpeg binaries)
-- **Best For:** Users with FFmpeg installed
+- **Best For:** Users with FFmpeg installed in path or apps directory.
 - **File Size:** Small
 
 ### StpaRemuxer
