@@ -26,7 +26,7 @@ Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank"
 
 ### StpaRemuxer
 - **Included:** Python app with FFmpeg (ffmpeg.exe & ffprobe.exe)
-- **File Size:** Larger due to FFmpeg executables
+- **File Size:** Larger due to built in FFmpeg executables
 
 ### Build from Source 🧑‍💻
 1. Clone the repo and install dependencies from `requirements.txt`.
