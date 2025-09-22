@@ -8,8 +8,6 @@ import time
 import sys
 import shutil
 import json
-import re
-from datetime import datetime
 import concurrent.futures
 
 
@@ -28,9 +26,7 @@ class RemuxApp(tk.Tk):
     FPS_SCAN_TIMEOUT = 8  # seconds (reduced for faster failure detection)
     PROCESS_TIMEOUT = 3600  # seconds (1 hour) - timeout for individual file processing
     LOG_TEXT_HEIGHT = 8
-    COURIER_FONT_SIZE = 9
-    SEGOE_UI_FONT_SIZE = 8
-    DEFAULT_TIMESCALE = "30"
+    DEFAULT_TIMESCALE = "24"
 
     # File operation modes
     FILE_ACTION_MOVE = "move"
@@ -40,7 +36,6 @@ class RemuxApp(tk.Tk):
     # UI States
     UI_STATE_DISABLED = "disabled"
     UI_STATE_NORMAL = "normal"
-    UI_STATE_READONLY = "readonly"
 
     def __init__(self):
         super().__init__()
@@ -168,8 +163,6 @@ class RemuxApp(tk.Tk):
         self.processing_start_time = None  # Track when processing starts for elapsed time
         self.scan_start_time = None  # Track when scanning starts for elapsed time
 
-        # --- Parallel processing settings ---
-        self.max_workers = 4  # Default number of parallel workers
 
         # --- Supported formats ---
         self.supported_formats = {
@@ -182,7 +175,6 @@ class RemuxApp(tk.Tk):
         self.timescale_is_source = tk.BooleanVar(value=True)
         self.timescale_preset_var = tk.StringVar(value=self.DEFAULT_TIMESCALE)
         self.timescale_custom_var = tk.StringVar(value="")
-        self.show_log_option = tk.BooleanVar(value=False)
         self.auto_start_remux = tk.BooleanVar(value=True)
         self.include_audio = tk.BooleanVar(value=True)
         self.file_action_var = tk.StringVar(value=self.FILE_ACTION_MOVE)
@@ -334,7 +326,6 @@ class RemuxApp(tk.Tk):
                     self.timescale_custom_var.set(settings["timescale_custom"])
 
                 # Update UI elements that depend on these settings
-                self.toggle_audio_options()
                 self.on_timescale_option_change()
                 # Ensure timescale options are properly initialized
                 if self.use_timescale_option.get():
@@ -361,7 +352,6 @@ class RemuxApp(tk.Tk):
             self.timescale_custom_var.set("")
 
             # Update UI elements
-            self.toggle_audio_options()
             self.on_timescale_option_change()
             # Ensure timescale options are properly initialized
             if self.use_timescale_option.get():
@@ -550,7 +540,7 @@ class RemuxApp(tk.Tk):
         self.btn_run.pack(side="left", padx=5)
 
         # Auto-start remux button on the right
-        self.auto_start_checkbox = ttk.Checkbutton(frame_buttons, text="Auto-start Remux", variable=self.auto_start_remux, command=self.update_auto_start_button)
+        self.auto_start_checkbox = ttk.Checkbutton(frame_buttons, text="Auto-start Remux", variable=self.auto_start_remux)
         self.auto_start_checkbox.pack(side="right", padx=15)
 
         # Start Remux button will be created in Step 2 frame after scan
@@ -567,7 +557,7 @@ class RemuxApp(tk.Tk):
         format_frame = ttk.Frame(frame_output_format)
         format_frame.pack(fill="x")
         ttk.Label(format_frame, text="Output format:").pack(side="left")
-        format_combo = ttk.Combobox(format_frame, textvariable=self.output_format_var, state=self.UI_STATE_READONLY, width=8)
+        format_combo = ttk.Combobox(format_frame, textvariable=self.output_format_var, state="readonly", width=8)
         format_combo["values"] = self.supported_formats['output']
         format_combo.pack(side="left", padx=(5, 0))
         ttk.Button(format_frame, text="?", width=2, command=self.show_output_format_info).pack(side="left", padx=(5, 0))
@@ -597,7 +587,7 @@ class RemuxApp(tk.Tk):
         
         audio_frame = ttk.Frame(audio_container)
         audio_frame.pack(fill="x")
-        self.audio_checkbox = ttk.Checkbutton(audio_frame, text="Include Audio Streams", variable=self.include_audio, command=self.toggle_audio_options)
+        self.audio_checkbox = ttk.Checkbutton(audio_frame, text="Include Audio Streams", variable=self.include_audio)
         self.audio_checkbox.pack(side="left")
         ttk.Button(audio_frame, text="?", width=2, command=self.show_audio_info).pack(side="left", padx=(5, 0))
         
@@ -649,7 +639,7 @@ class RemuxApp(tk.Tk):
         ttk.Radiobutton(preset_frame, text="Force preset timescale:", variable=self.timescale_is_source, value=False).pack(side="left")
         self.timescale_combobox = ttk.Combobox(preset_frame, textvariable=self.timescale_preset_var, state=self.UI_STATE_DISABLED, width=7)
         self.timescale_combobox["values"] = ("23.976", "24", "25", "29.97", "30", "50", "59.94", "60", "90", "120", "144", "Custom")
-        self.timescale_combobox.set("30")
+        self.timescale_combobox.set("24")
         self.timescale_combobox.pack(side="left", padx=(5, 10))
         self.timescale_combobox.bind("<<ComboboxSelected>>", self.check_custom_timescale)
         self.custom_timescale_entry = ttk.Entry(preset_frame, textvariable=self.timescale_custom_var, width=7, state=self.UI_STATE_DISABLED)
@@ -678,7 +668,7 @@ class RemuxApp(tk.Tk):
         ttk.Button(log_button_frame, text="Copy Log", command=self.copy_log_to_clipboard).pack(side="right")
         ttk.Button(log_button_frame, text="Clear Log", command=self.clear_log).pack(side="right", padx=(10, 0))
 
-        self.log_text = tk.Text(self.log_frame, height=self.LOG_TEXT_HEIGHT, wrap="word", state=self.UI_STATE_DISABLED, bg="black", fg="white", font=("Courier New", self.COURIER_FONT_SIZE))
+        self.log_text = tk.Text(self.log_frame, height=self.LOG_TEXT_HEIGHT, wrap="word", state="disabled", bg="black", fg="white", font=("Courier New", 9))
         self.log_text.pack(side="left", fill="both", expand=True)
         scrollbar = ttk.Scrollbar(self.log_frame, command=self.log_text.yview)
         scrollbar.pack(side="right", fill="y")
@@ -961,7 +951,8 @@ class RemuxApp(tk.Tk):
         try:
             base_path = sys._MEIPASS
         except AttributeError:
-            base_path = os.path.abspath(".")
+            # Use the script's directory instead of current working directory
+            base_path = os.path.dirname(os.path.abspath(__file__))
 
         # Only add .exe extension for actual executable files, not data files
         if (sys.platform == "win32" and
@@ -1115,9 +1106,6 @@ class RemuxApp(tk.Tk):
                 elif msg_type == "PROGRESS":
                     self.progress_bar_total["value"] = data['total_percent']
                     self.label_total_progress.config(text=f"Total Progress: {data['current']}/{data['total']}")
-                elif msg_type == "CURRENT_FILE":
-                    self.label_current_file.config(text=f"Current file: {data['filename']}")
-                    self.current_file_duration = data.get('duration', 0)
                 elif msg_type == "PARALLEL_STATUS":
                     self.parallel_status_label.config(text=data)
                 elif msg_type == "FINISHED":
@@ -1968,128 +1956,10 @@ class RemuxApp(tk.Tk):
 
         return result
 
-    def remux_videos_parallel_worker(self, settings):
-        """Process multiple video files in parallel using ThreadPoolExecutor."""
-        total_videos = len(settings["files"])
-        completed_count = 0
-        remuxed_count = 0
-        skipped_count = 0
-        active_workers = 0
-
-        self.process_queue.put(("LOG", f"Starting parallel remux for {total_videos} files using {self.max_workers} workers..."))
-
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit all tasks
-                future_to_file = {
-                    executor.submit(self.remux_single_file, video_file_path, settings, i, total_videos): video_file_path
-                    for i, video_file_path in enumerate(settings["files"])
-                }
-
-                # Update initial worker count
-                active_workers = min(len(future_to_file), self.max_workers)
-                self.process_queue.put(("PARALLEL_STATUS", f"Active workers: {active_workers}/{self.max_workers}"))
-                time.sleep(0.1)  # Small delay to let UI update
-
-                # Process completed tasks
-                for future in concurrent.futures.as_completed(future_to_file):
-                    if self.cancel_event.is_set():
-                        self.process_queue.put(("LOG", "Operation cancelled by user."))
-                        # Cancel remaining tasks
-                        for f in future_to_file:
-                            if not f.done():
-                                f.cancel()
-                        break
-
-                    video_file_path = future_to_file[future]
-                    file_name = os.path.basename(video_file_path)
-
-                    try:
-                        result = future.result()
-                        completed_count += 1
-
-                        if result == "completed":
-                            remuxed_count += 1
-                        elif result == "skipped":
-                            skipped_count += 1
-
-                        # Update overall progress
-                        progress_percent = (completed_count / total_videos) * 100
-                        self.process_queue.put(("PROGRESS", {
-                            'total_percent': progress_percent,
-                            'current': completed_count,
-                            'total': total_videos
-                        }))
-
-                        # Update active worker count
-                        active_workers = sum(1 for f in future_to_file.keys() if not f.done())
-                        self.process_queue.put(("PARALLEL_STATUS", f"Active workers: {active_workers}/{self.max_workers}"))
-
-                    except Exception as e:
-                        completed_count += 1
-                        skipped_count += 1
-                        self.process_queue.put(("LOG", f"Error processing {file_name}: {str(e)}"))
-
-                        # Update overall progress
-                        progress_percent = (completed_count / total_videos) * 100
-                        self.process_queue.put(("PROGRESS", {
-                            'total_percent': progress_percent,
-                            'current': completed_count,
-                            'total': total_videos
-                        }))
-
-                        # Update active worker count
-                        active_workers = sum(1 for f in future_to_file.keys() if not f.done())
-                        self.process_queue.put(("PARALLEL_STATUS", f"Active workers: {active_workers}/{self.max_workers}"))
-
-        except Exception as e:
-            self.process_queue.put(("LOG", f"Error in parallel processing: {str(e)}"))
-            self.process_queue.put(("LOG", f"Switching to sequential processing for remaining files..."))
-            # Fallback to sequential processing
-            try:
-                remaining_files = [f for f in settings["files"] if f not in [future_to_file[f] for f in future_to_file if f.done()]]
-                if remaining_files:
-                    for video_file_path in remaining_files:
-                        if self.cancel_event.is_set():
-                            break
-                        result = self.remux_single_file(video_file_path, settings, 0, len(remaining_files))
-                        if result == "completed":
-                            remuxed_count += 1
-                        elif result == "skipped":
-                            skipped_count += 1
-                        completed_count += 1
-                        progress_percent = (completed_count / total_videos) * 100
-                        self.process_queue.put(("PROGRESS", {
-                            'total_percent': progress_percent,
-                            'current': completed_count,
-                            'total': total_videos
-                        }))
-            except Exception as fallback_error:
-                self.process_queue.put(("LOG", f"Fallback processing also failed: {str(fallback_error)}"))
-
-        self.process_queue.put(("PARALLEL_STATUS", "Active workers: 0/0"))
-        self.process_queue.put(("PROGRESS", {'total_percent': 100, 'current': total_videos, 'total': total_videos}))
-        self.process_queue.put(("FINISHED", {'remuxed': remuxed_count, 'skipped': skipped_count}))
 
     # ---------- UI Callbacks ----------
-    def toggle_log_output(self):
-        if self.show_log_option.get():
-            # Switch to logs tab to show log output
-            self.notebook.select(self.logs_tab)
-        else:
-            # Switch back to remuxer tab when hiding logs
-            self.notebook.select(self.remuxer_tab)
 
-    def update_auto_start_button(self):
-        """Update the auto-start button text and behavior."""
-        # This method can be extended if needed for dynamic behavior
-        pass
 
-    def toggle_audio_options(self):
-        """Show/hide audio mapping options based on include audio setting."""
-        # Audio options have been simplified - no additional options to show/hide
-        # All audio tracks are now automatically mapped when audio is included
-        pass
 
     def on_timescale_option_change(self, *args):
         use_preset = not self.timescale_is_source.get()
@@ -2214,41 +2084,6 @@ class RemuxApp(tk.Tk):
 
     # ---------- Settings Control Callbacks ----------
 
-    def on_output_format_change(self, *args):
-        """Callback for output format changes."""
-        pass
-
-    def on_include_audio_change(self, *args):
-        """Callback for include audio changes."""
-        pass
-
-    def on_preserve_timestamps_change(self, *args):
-        """Callback for preserve timestamps changes."""
-        pass
-
-    def on_use_timescale_change(self, *args):
-        """Callback for use timescale changes."""
-        pass
-
-    def on_timescale_preset_change(self, *args):
-        """Callback for timescale preset changes."""
-        pass
-
-    def on_timescale_custom_change(self, *args):
-        """Callback for timescale custom changes."""
-        pass
-
-    def on_validate_files_change(self, *args):
-        """Callback for validate files changes."""
-        pass
-
-    def on_preview_commands_change(self, *args):
-        """Callback for preview commands changes."""
-        pass
-
-    def on_show_log_change(self, *args):
-        """Callback for show log changes."""
-        pass
 
     def copy_log_to_clipboard(self):
         """Copy the log output to clipboard."""
