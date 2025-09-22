@@ -139,8 +139,15 @@ class RemuxApp(tk.Tk):
         style.map("TEntry", focuscolor=[("focus", self.cget("background"))])
         
         # --- Application State ---
-        self.ffmpeg_path = self.get_resource_path("ffmpeg")
-        self.ffprobe_path = self.get_resource_path("ffprobe")
+        # Check for required tools (ffmpeg and ffprobe) at startup
+        self.ffmpeg_path = self.find_ffmpeg_path()
+        self.ffprobe_path = self.find_ffprobe_path()
+
+        # Show error dialog with retry option if required tools are not found
+        if not self.ffmpeg_path or not self.ffprobe_path:
+            self.show_missing_tools_dialog()
+            return  # Exit __init__ early if tools are missing
+
         self.output_directory = ""
         self.files_to_process = []
         self.scan_results = {}
@@ -946,6 +953,246 @@ class RemuxApp(tk.Tk):
 
     # ---------- Utility & Process Functions ----------
 
+    def find_ffmpeg_path(self):
+        """Find ffmpeg executable by checking current directory first, then system PATH."""
+        # First, try to find ffmpeg in the current directory (same as application)
+        try:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            ffmpeg_local_path = os.path.join(base_path, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+
+            if os.path.exists(ffmpeg_local_path):
+                return ffmpeg_local_path
+        except Exception:
+            pass
+
+        # If not found locally, check system PATH
+        try:
+            # Use shutil.which to find ffmpeg in system PATH
+            ffmpeg_path = shutil.which("ffmpeg")
+            if ffmpeg_path:
+                return ffmpeg_path
+        except Exception:
+            pass
+
+        # If still not found, return None
+        return None
+
+    def find_ffprobe_path(self):
+        """Find ffprobe executable by checking current directory first, then system PATH."""
+        # First, try to find ffprobe in the current directory (same as application)
+        try:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            ffprobe_local_path = os.path.join(base_path, "ffprobe.exe" if sys.platform == "win32" else "ffprobe")
+
+            if os.path.exists(ffprobe_local_path):
+                return ffprobe_local_path
+        except Exception:
+            pass
+
+        # If not found locally, check system PATH
+        try:
+            # Use shutil.which to find ffprobe in system PATH
+            ffprobe_path = shutil.which("ffprobe")
+            if ffprobe_path:
+                return ffprobe_path
+        except Exception:
+            pass
+
+        # If still not found, return None
+        return None
+
+    def show_missing_tools_dialog(self):
+        """Show dialog when required tools (ffmpeg/ffprobe) are missing."""
+        # Create custom dialog
+        dialog = tk.Toplevel(self)
+        dialog.title("Missing Required Tools")
+        dialog.geometry("450x250")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        # Set custom window icon for dialog
+        try:
+            icon_path = self.get_resource_path("ICOtrans.ico")
+            try:
+                dialog.iconbitmap(icon_path)
+            except Exception:
+                try:
+                    from PIL import Image, ImageTk
+                    icon = Image.open(icon_path)
+                    icon = ImageTk.PhotoImage(icon)
+                    dialog.iconphoto(True, icon)
+                except Exception:
+                    try:
+                        icon = tk.PhotoImage(file=icon_path)
+                        dialog.iconphoto(True, icon)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Center the dialog
+        dialog.geometry("+%d+%d" % (self.winfo_rootx() + self.winfo_width()//2 - 225,
+                                    self.winfo_rooty() + self.winfo_height()//2 - 125))
+
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # Missing tools message
+        missing_tools = []
+        if not self.ffmpeg_path:
+            missing_tools.append("ffmpeg")
+        if not self.ffprobe_path:
+            missing_tools.append("ffprobe")
+
+        tools_text = " and ".join(missing_tools)
+
+        message_label = ttk.Label(main_frame,
+                                 text=f"The following required tools are not found:\n\n{tools_text}\n\n"
+                                      "Please ensure they are either:\n"
+                                      "• In the same directory as this application, or\n"
+                                      "• Available in your system PATH\n\n"
+                                      "After adding the files, click 'Retry' to continue.",
+                                 justify="left", wraplength=400)
+        message_label.pack(pady=(0, 20))
+
+        def retry_check():
+            """Re-check for the missing tools."""
+            self.ffmpeg_path = self.find_ffmpeg_path()
+            self.ffprobe_path = self.find_ffprobe_path()
+
+            if self.ffmpeg_path and self.ffprobe_path:
+                # Both tools found, close dialog and continue initialization
+                dialog.destroy()
+                self.continue_initialization()
+            else:
+                # Still missing, show error message
+                messagebox.showerror("Still Missing",
+                                   "The required tools are still not found.\n\n"
+                                   "Please ensure ffmpeg and ffprobe are properly installed\n"
+                                   "and accessible before retrying.")
+
+        def exit_application():
+            """Exit the application."""
+            dialog.destroy()
+            self.destroy()
+
+        # Button container frame
+        button_container = ttk.Frame(main_frame)
+        button_container.pack(pady=(20, 0))
+
+        # Center the buttons horizontally
+        button_container.grid_columnconfigure(0, weight=1)
+        button_container.grid_columnconfigure(2, weight=1)
+
+        # Retry button
+        retry_btn = ttk.Button(button_container, text="Retry", command=retry_check)
+        retry_btn.grid(row=0, column=1, padx=(0, 10))
+
+        # Exit button
+        exit_btn = ttk.Button(button_container, text="Exit", command=exit_application)
+        exit_btn.grid(row=0, column=2)
+
+        # Set focus on retry button by default
+        retry_btn.focus()
+
+        # Handle Enter key
+        dialog.bind('<Return>', lambda e: retry_check())
+        dialog.bind('<Escape>', lambda e: exit_application())
+
+        # Handle window close button (X)
+        dialog.protocol("WM_DELETE_WINDOW", exit_application)
+
+    def continue_initialization(self):
+        """Continue with the normal application initialization after tools are found."""
+        # This method will be called after successful retry to continue __init__
+        # Re-initialize the paths (they should now be found)
+        self.ffmpeg_path = self.find_ffmpeg_path()
+        self.ffprobe_path = self.find_ffprobe_path()
+
+        # Continue with the rest of the initialization that was skipped
+        self.output_directory = ""
+        self.files_to_process = []
+        self.scan_results = {}
+        self.is_scanned = False
+        self.process_queue = queue.Queue()
+        self.current_process = None
+        self.selected_output_directory = ""  # Track user-selected output directory
+
+        # --- Threading locks for safety ---
+        self.state_lock = threading.Lock()
+        self.process_lock = threading.Lock()
+
+        # --- Threading Events ---
+        self.pause_event = threading.Event()
+        self.pause_event.set()  # Set by default (not paused)
+        self.cancel_event = threading.Event()
+        self.skip_event = threading.Event()
+
+        # --- Statistics ---
+        self.processing_start_time = None  # Track when processing starts for elapsed time
+        self.scan_start_time = None  # Track when scanning starts for elapsed time
+
+        # --- Supported formats ---
+        self.supported_formats = {
+            'input': ['.mkv'],
+            'output': ['.mp4', '.mov']
+        }
+
+        # --- Settings Variables ---
+        self.use_timescale_option = tk.BooleanVar(value=True)
+        self.timescale_is_source = tk.BooleanVar(value=True)
+        self.timescale_preset_var = tk.StringVar(value=self.DEFAULT_TIMESCALE)
+        self.timescale_custom_var = tk.StringVar(value="")
+        self.auto_start_remux = tk.BooleanVar(value=True)
+        self.include_audio = tk.BooleanVar(value=True)
+        self.file_action_var = tk.StringVar(value=self.FILE_ACTION_MOVE)
+        self.output_format_var = tk.StringVar(value=".mp4")
+        self.validate_files_var = tk.BooleanVar(value=True)
+        self.preserve_timestamps_var = tk.BooleanVar(value=True)
+        self.preview_commands_var = tk.BooleanVar(value=False)
+        self.overwrite_existing_var = tk.BooleanVar(value=False)
+
+        # --- Settings State ---
+        self.settings_disabled = False
+
+        # Create widgets and continue with normal initialization
+        self.create_widgets()
+        self.after(self.PROGRESS_UPDATE_INTERVAL, self.check_queue)
+
+        # Remove focus from all existing widgets
+        self.remove_focus_from_all_widgets()
+
+        # Specifically configure notebook tabs
+        self.configure_notebook_tabs()
+
+        # Apply tab styling after a short delay to ensure tabs are created
+        self.after(100, self.apply_tab_styling)
+
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Load saved settings FIRST
+        self.load_settings()
+
+        # Add auto-save traces to all settings variables AFTER loading
+        self.auto_start_remux.trace_add("write", lambda *args: self.auto_save_settings())
+        self.include_audio.trace_add("write", lambda *args: self.auto_save_settings())
+        self.file_action_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.output_format_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.validate_files_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.preserve_timestamps_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.preview_commands_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.overwrite_existing_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.use_timescale_option.trace_add("write", lambda *args: self.auto_save_settings())
+        self.timescale_is_source.trace_add("write", lambda *args: self.auto_save_settings())
+        self.timescale_preset_var.trace_add("write", lambda *args: self.auto_save_settings())
+        self.timescale_custom_var.trace_add("write", lambda *args: self.auto_save_settings())
+
+        # Ensure timescale options are properly initialized on startup
+        if self.use_timescale_option.get():
+            self.toggle_timescale_selector()
+
     def get_resource_path(self, relative_path):
         """Get the absolute path to a resource file, handling PyInstaller bundling."""
         try:
@@ -1631,9 +1878,6 @@ class RemuxApp(tk.Tk):
     # ---------- Worker Threads ----------
 
     def start_scan_thread(self):
-        if not os.path.exists(self.ffprobe_path):
-            messagebox.showerror("Error", f"ffprobe not found:\n{self.ffprobe_path}\nPlease ensure ffprobe is in the same directory as the application.")
-            return
 
         # Hide Auto-start Remux checkbox as soon as scanning starts
         self.auto_start_checkbox.pack_forget()
@@ -1802,9 +2046,6 @@ class RemuxApp(tk.Tk):
         self.process_queue.put(('SCAN_COMPLETE', {'results': results}))
 
     def start_remux_thread(self, auto_start=False):
-        if not os.path.exists(self.ffmpeg_path):
-            messagebox.showerror("Error", f"ffmpeg not found:\n{self.ffmpeg_path}")
-            return
 
         # Show command preview if enabled
         if self.preview_commands_var.get():
