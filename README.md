@@ -4,6 +4,8 @@ A powerful and user-friendly desktop application for remuxing video files, built
 
 ![Stpa Remuxer Application Screenshot](https://i.imgur.com/IPKBSi1.png)
 
+[Download Stpa Remuxer v2.0.0](https://github.com/notstpa/stpa-remuxer/releases/tag/25.09.21)
+
 If you find this app useful, you can support its development by <a href="https://www.buymeacoffee.com/stpa" target="_blank">buying me a coffee</a>.
 
 ### Key Features 🚀
