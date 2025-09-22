@@ -31,6 +31,6 @@ Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank"
 ## Build from Source 🧑‍💻
 1. Clone the repo and install dependencies from `requirements.txt`.
 2. Download `ffmpeg.exe` and `ffprobe.exe` from [FFmpeg Download](https://www.ffmpeg.org/download.html).
-   - **Note:** The app will notfunction unless `ffmpeg.exe` and `ffprobe.exe` are either placed in the root directory or added to your system's PATH.
+   - **Note:** The app will not function unless `ffmpeg.exe` and `ffprobe.exe` are either placed in the root directory or added to your system's PATH.
 3. Run `build_app.bat`.
 4. The app will be in the `dist` folder.
