@@ -4,6 +4,8 @@ A powerful and user-friendly desktop application for remuxing video files, built
 
 ![Stpa Remuxer Application Screenshot](https://i.imgur.com/IPKBSi1.png)
 
+If you find this app useful, you can support its development by <a href="https://www.buymeacoffee.com/stpa" target="_blank">buying me a coffee</a>.
+
 ### Key Features 🚀
 - **Lossless Remuxing**: Change video container formats (e.g., MKV to MP4) without re-encoding, maintaining 100% of the original quality.
 - **VFR (Variable Frame Rate) Fix**: Automatically detects and applies a Constant Frame Rate (CFR) to videos, resolving common sync and playback issues in video editing software.
