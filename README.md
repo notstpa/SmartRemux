@@ -2,6 +2,8 @@
 
 A powerful and user-friendly desktop application for remuxing video files, built with **Python** and **Tkinter**. This tool efficiently converts MKV files to MP4 or MOV containers without re-encoding, preserving video and audio quality. It's designed to fix common issues with **Variable Frame Rate (VFR)** videos, making them compatible with video editors like DaVinci Resolve and Adobe Premiere Pro.
 
+![Stpa Remuxer Application Screenshot](https://i.imgur.com/IPKBSi1.png)
+
 ### Key Features 🚀
 - **Lossless Remuxing**: Change video container formats (e.g., MKV to MP4) without re-encoding, maintaining 100% of the original quality.
 - **VFR (Variable Frame Rate) Fix**: Automatically detects and applies a Constant Frame Rate (CFR) to videos, resolving common sync and playback issues in video editing software.
