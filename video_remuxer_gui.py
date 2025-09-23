@@ -2480,4 +2480,3 @@ class RemuxApp(tk.Tk):
 if __name__ == "__main__":
     app = RemuxApp()
     app.mainloop()
-
