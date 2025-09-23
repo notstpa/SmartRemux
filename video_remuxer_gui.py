@@ -1,3 +1,7 @@
+# =============================================================================
+# IMPORTS AND DEPENDENCIES
+# =============================================================================
+# Import all required Python modules and libraries for the video remuxer GUI
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import subprocess
@@ -11,13 +15,21 @@ import json
 import concurrent.futures
 
 
+# =============================================================================
+# MAIN APPLICATION CLASS - RemuxApp
+# =============================================================================
+# Enhanced Tkinter-based GUI application for remuxing video files with
+# improved progress tracking, format support, and resume capability
 class RemuxApp(tk.Tk):
     """
     Enhanced Tkinter-based GUI application for remuxing video files,
     featuring improved progress tracking, format support, and resume capability.
     """
 
-    # --- Constants ---
+    # =============================================================================
+    # CONSTANTS AND CONFIGURATION
+    # =============================================================================
+    # Define application-wide constants and settings for consistent behavior
     WINDOW_WIDTH = 650
     WINDOW_HEIGHT = 600
     PROGRESS_UPDATE_INTERVAL = 100  # milliseconds
@@ -26,7 +38,7 @@ class RemuxApp(tk.Tk):
     FPS_SCAN_TIMEOUT = 8  # seconds (reduced for faster failure detection)
     PROCESS_TIMEOUT = 3600  # seconds (1 hour) - timeout for individual file processing
     LOG_TEXT_HEIGHT = 8
-    DEFAULT_TIMESCALE = "24"
+    DEFAULT_TIMESCALE = "30"
 
     # File operation modes
     FILE_ACTION_MOVE = "move"
@@ -37,36 +49,14 @@ class RemuxApp(tk.Tk):
     UI_STATE_DISABLED = "disabled"
     UI_STATE_NORMAL = "normal"
 
+    # =============================================================================
+    # INITIALIZATION METHOD
+    # =============================================================================
+    # Set up the application on startup including window configuration,
+    # tool validation, state initialization, and widget creation
     def __init__(self):
         super().__init__()
         self.title("Stpa Remuxer v2.0")
-
-
-
-        # --- Remove focus dotted lines globally ---
-        self.option_add("*TButton*highlightThickness", 0)
-        self.option_add("*TCheckbutton*highlightThickness", 0)
-        self.option_add("*TRadiobutton*highlightThickness", 0)
-        self.option_add("*TCombobox*highlightThickness", 0)
-        self.option_add("*TLabel*highlightThickness", 0)
-        self.option_add("*TFrame*highlightThickness", 0)
-        self.option_add("*TLabelFrame*highlightThickness", 0)
-        self.option_add("*TNotebook*highlightThickness", 0)
-        self.option_add("*TNotebook.Tab*highlightThickness", 0)
-        self.option_add("*TNotebook*Tab*highlightThickness", 0)
-        self.option_add("*TNotebook*focusThickness", 0)
-        self.option_add("*TNotebook*Tab*focusThickness", 0)
-        self.option_add("*TProgressbar*highlightThickness", 0)
-        self.option_add("*TScale*highlightThickness", 0)
-        self.option_add("*TMenubutton*highlightThickness", 0)
-        self.option_add("*TSpinbox*highlightThickness", 0)
-        self.option_add("*TEntry*highlightThickness", 0)
-        self.option_add("*Text*highlightThickness", 0)
-        self.option_add("*Button*highlightThickness", 0)
-        self.option_add("*Checkbutton*highlightThickness", 0)
-        self.option_add("*Radiobutton*highlightThickness", 0)
-        self.option_add("*Entry*highlightThickness", 0)
-        self.option_add("*Text*highlightThickness", 0)
 
         # Disable focus for all widgets
         self.option_add("*takeFocus", 0)
@@ -79,64 +69,9 @@ class RemuxApp(tk.Tk):
         center_y = int(screen_height / 2 - window_height / 2)
         self.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
 
-        # Set custom window icon
-        try:
-            # Try multiple methods for maximum compatibility
-            icon_path = self.get_resource_path("ICOtrans.ico")
+        # Set custom window icon with improved error handling and platform optimization
+        self.set_window_icon("ICOtrans.ico")
 
-            # Method 1: Use iconbitmap (works best on Windows)
-            try:
-                self.iconbitmap(icon_path)
-            except Exception:
-                # Method 2: Use iconphoto as fallback
-                try:
-                    from PIL import Image, ImageTk
-                    icon = Image.open(icon_path)
-                    icon = ImageTk.PhotoImage(icon)
-                    self.iconphoto(True, icon)
-                except Exception:
-                    # Method 3: Use default Tkinter PhotoImage
-                    try:
-                        icon = tk.PhotoImage(file=icon_path)
-                        self.iconphoto(True, icon)
-                    except Exception:
-                        print(f"Warning: Could not load custom icon: {icon_path}")
-
-        except Exception as e:
-            print(f"Warning: Could not load custom icon: {e}")
-
-        # --- Style Configuration ---
-        style = ttk.Style()
-        style.configure("TButton", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TCheckbutton", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TRadiobutton", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TCombobox", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TLabel", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TFrame", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TLabelFrame", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TNotebook", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TNotebook.Tab", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TProgressbar", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TScale", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TMenubutton", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TSpinbox", focuscolor=self.cget("background"), focusthickness=0)
-        style.configure("TEntry", focuscolor=self.cget("background"), focusthickness=0)
-
-        # Configure overall focus behavior
-        style.map("TButton", focuscolor=[("focus", self.cget("background"))])
-        style.map("TCheckbutton", focuscolor=[("focus", self.cget("background"))])
-        style.map("TRadiobutton", focuscolor=[("focus", self.cget("background"))])
-        style.map("TCombobox", focuscolor=[("focus", self.cget("background"))])
-        style.map("TLabel", focuscolor=[("focus", self.cget("background"))])
-        style.map("TFrame", focuscolor=[("focus", self.cget("background"))])
-        style.map("TLabelFrame", focuscolor=[("focus", self.cget("background"))])
-        style.map("TNotebook", focuscolor=[("focus", self.cget("background"))])
-        style.map("TNotebook.Tab", focuscolor=[("focus", self.cget("background"))])
-        style.map("TProgressbar", focuscolor=[("focus", self.cget("background"))])
-        style.map("TScale", focuscolor=[("focus", self.cget("background"))])
-        style.map("TMenubutton", focuscolor=[("focus", self.cget("background"))])
-        style.map("TSpinbox", focuscolor=[("focus", self.cget("background"))])
-        style.map("TEntry", focuscolor=[("focus", self.cget("background"))])
         
         # --- Application State ---
         # Check for required tools (ffmpeg and ffprobe) at startup
@@ -229,7 +164,10 @@ class RemuxApp(tk.Tk):
         if self.use_timescale_option.get():
             self.toggle_timescale_selector()
 
-
+    # =============================================================================
+    # SETTINGS MANAGEMENT
+    # =============================================================================
+    # Handle application settings persistence, loading, saving, and restoration
     def get_settings_file_path(self):
         """Get the path to the settings file."""
         try:
@@ -292,8 +230,8 @@ class RemuxApp(tk.Tk):
             self.settings_feedback_label.config(text="✓ Settings saved")
             self.settings_feedback_label.lift()
 
-            # Hide the feedback after 2 seconds
-            self.after(2000, lambda: self.settings_feedback_label.config(text=""))
+            # Hide the feedback after 100 seconds
+            self.after(100, lambda: self.settings_feedback_label.config(text=""))
 
         except Exception as e:
             print(f"Failed to show settings feedback: {e}")
@@ -367,6 +305,10 @@ class RemuxApp(tk.Tk):
         except Exception as e:
             print(f"Failed to restore defaults: {e}")
 
+    # =============================================================================
+    # UI SETUP METHODS
+    # =============================================================================
+    # Configure UI appearance, focus management, and widget styling
     def remove_focus_from_all_widgets(self):
         """Remove focus capability from all widgets to eliminate dotted borders."""
         def configure_widget(widget):
@@ -437,6 +379,10 @@ class RemuxApp(tk.Tk):
         except Exception as e:
             print(f"Error applying tab styling: {e}")
 
+    # =============================================================================
+    # WIDGET CREATION METHODS
+    # =============================================================================
+    # Build the main interface components including tabs, frames, and controls
     def create_widgets(self):
         # Configure notebook to prevent focus indicators
         style = ttk.Style()
@@ -687,6 +633,10 @@ class RemuxApp(tk.Tk):
         self.log_text.delete(1.0, "end")
         self.log_text.config(state="disabled")
 
+    # =============================================================================
+    # FFMPEG COMMAND BUILDING
+    # =============================================================================
+    # Generate FFmpeg commands for video remuxing with proper parameters
     def build_ffmpeg_command(self, video_file_path, settings):
         """Build FFmpeg command for remuxing a video file."""
         file_name = os.path.basename(video_file_path)
@@ -726,6 +676,10 @@ class RemuxApp(tk.Tk):
 
         return command, output_file_path
 
+    # =============================================================================
+    # FILE PROCESSING METHODS
+    # =============================================================================
+    # Execute FFmpeg processes and handle file operations during remuxing
     def execute_ffmpeg_process(self, command, output_file_path, file_name, duration, settings):
         """Execute FFmpeg process with real-time output reading to prevent freezing."""
         try:
@@ -950,6 +904,12 @@ class RemuxApp(tk.Tk):
         except Exception as e:
             self.process_queue.put(("LOG", f"Warning: Error getting audio tracks for {os.path.basename(file_path)}: {str(e)}"))
             return []
+
+    # =============================================================================
+    # UTILITY METHODS
+    # =============================================================================
+    # Provide helper functions for various operations like tool detection,
+    # file validation, and resource path handling
 
     # ---------- Utility & Process Functions ----------
 
@@ -1208,6 +1168,65 @@ class RemuxApp(tk.Tk):
 
         return os.path.join(base_path, relative_path)
 
+    def set_window_icon(self, icon_filename="ICOtrans.ico"):
+        """Set window icon using multiple fallback methods with platform optimization."""
+        try:
+            icon_path = self.get_resource_path(icon_filename)
+            if not os.path.exists(icon_path):
+                self._log_icon_warning(f"Icon file not found: {icon_path}")
+                return
+
+            # Try platform-optimized methods first
+            if self._set_icon_windows(icon_path):
+                return
+            if self._set_icon_pil(icon_path):
+                return
+            if self._set_icon_tkinter(icon_path):
+                return
+
+            self._log_icon_warning(f"Failed to set icon: {icon_path}")
+
+        except Exception as e:
+            self._log_icon_warning(f"Error setting icon: {e}")
+
+    def _set_icon_windows(self, icon_path):
+        """Try Windows-specific iconbitmap method."""
+        if sys.platform == "win32":
+            try:
+                self.iconbitmap(icon_path)
+                return True
+            except (tk.TclError, OSError):
+                pass
+        return False
+
+    def _set_icon_pil(self, icon_path):
+        """Try PIL-based icon setting with size optimization."""
+        try:
+            from PIL import Image, ImageTk
+            with Image.open(icon_path) as img:
+                # Optimize icon size for better compatibility
+                if max(img.size) > 256:
+                    img = img.resize((256, 256), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+            self.iconphoto(True, photo)
+            return True
+        except Exception:
+            return False
+
+    def _set_icon_tkinter(self, icon_path):
+        """Try basic Tkinter PhotoImage method."""
+        try:
+            photo = tk.PhotoImage(file=icon_path)
+            self.iconphoto(True, photo)
+            return True
+        except tk.TclError:
+            return False
+
+    def _log_icon_warning(self, message):
+        """Log icon-related warnings using proper logging."""
+        import logging
+        logging.warning(message)
+
     def validate_video_file(self, file_path):
         """Validate that a file is a readable video file using ffprobe."""
         try:
@@ -1248,6 +1267,12 @@ class RemuxApp(tk.Tk):
         except Exception as e:
             self.process_queue.put(("LOG", f"Warning: Error getting duration for {os.path.basename(file_path)}: {str(e)}"))
             return 0
+
+    # =============================================================================
+    # QUEUE PROCESSING
+    # =============================================================================
+    # Handle message processing from worker threads and update UI components
+    # with progress information, status updates, and completion notifications
 
     def check_queue(self):
         """Process messages from the worker threads and update the UI accordingly.
@@ -1401,7 +1426,13 @@ class RemuxApp(tk.Tk):
         except queue.Empty:
             pass
         self.after(self.PROGRESS_UPDATE_INTERVAL, self.check_queue)
-    
+
+    # =============================================================================
+    # UI STATE MANAGEMENT
+    # =============================================================================
+    # Manage application UI state transitions, button states, and interface updates
+    # during different phases of operation (scanning, processing, idle)
+
     def reset_scan_state(self):
         """Reset the application to a pre-scan state when new files are selected.
 
@@ -1524,6 +1555,12 @@ class RemuxApp(tk.Tk):
 
         self.reset_scan_state()
         self.enable_settings_controls()
+
+    # =============================================================================
+    # USER ACTION HANDLERS
+    # =============================================================================
+    # Handle user interactions with the GUI including file browsing, processing
+    # controls, and application lifecycle management
 
     # ---------- User Actions ----------
     def browse_input_folder(self):
@@ -1874,11 +1911,15 @@ class RemuxApp(tk.Tk):
                 # We're in a completed state, reset UI before closing
                 self.reset_ui_after_processing()
             self.destroy()
+# =============================================================================
+# WORKER THREADS
+# =============================================================================
+# Handle background processing tasks including file scanning and remuxing
+# operations using threading for non-blocking UI performance
 
-    # ---------- Worker Threads ----------
+# ---------- Worker Threads ----------
 
     def start_scan_thread(self):
-
         # Hide Auto-start Remux checkbox as soon as scanning starts
         self.auto_start_checkbox.pack_forget()
 
@@ -2197,6 +2238,11 @@ class RemuxApp(tk.Tk):
 
         return result
 
+    # =============================================================================
+    # UI CALLBACKS
+    # =============================================================================
+    # Handle UI event responses and dynamic updates for settings controls and
+    # user interactions including timescale options, info dialogs, and validation
 
     # ---------- UI Callbacks ----------
 
@@ -2322,6 +2368,12 @@ class RemuxApp(tk.Tk):
             "• Checked: Overwrite existing files with new remux\n\n"
             "Use overwrite mode when re-processing the same files."
         )
+
+    # =============================================================================
+    # SETTINGS CONTROL CALLBACKS
+    # =============================================================================
+    # Handle settings-related UI interactions including log management,
+    # completion dialogs, and directory operations
 
     # ---------- Settings Control Callbacks ----------
 
@@ -2477,6 +2529,10 @@ class RemuxApp(tk.Tk):
         except Exception as e:
             self.process_queue.put(("LOG", f"Warning: Failed to open output directory: {str(e)}"))
 
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+# Entry point for running the application as a standalone script
 if __name__ == "__main__":
-    app = RemuxApp()
-    app.mainloop()
+   app = RemuxApp()
+   app.mainloop()

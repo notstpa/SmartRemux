@@ -1,3 +1,5 @@
 ffmpeg.exe
 ffprobe.exe
 remuxer_settings.json
+build/
+dist/

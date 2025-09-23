@@ -5,7 +5,7 @@ a = Analysis(
     ['video_remuxer_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('ffmpeg.exe', '.'), ('ffprobe.exe', '.'), ('ICOtrans.ico', '.')],
+    datas=[('ICOtrans.ico', '.'), ('ffmpeg.exe', '.'), ('ffprobe.exe', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
