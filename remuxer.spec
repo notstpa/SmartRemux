@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
+version = os.environ.get('REMUXER_VERSION', '2.1')
+app_name = f'Remuxer V{version}'
+
+datas = [('ICOtrans.ico', '.')]
+if os.path.exists('ffmpeg.exe'):
+    datas.append(('ffmpeg.exe', '.'))
+if os.path.exists('ffprobe.exe'):
+    datas.append(('ffprobe.exe', '.'))
 
 a = Analysis(
     ['video_remuxer_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('ICOtrans.ico', '.'), ('ffmpeg.exe', '.'), ('ffprobe.exe', '.')],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -22,7 +31,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Remuxer V2.0',
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,5 +44,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['ICOtrans.ico'],
+    icon='ICOtrans.ico',
 )

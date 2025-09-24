@@ -1,43 +1,32 @@
 @echo off
 setlocal enabledelayedexpansion
-echo Building REMUX UI executable...
+
+:: --- Configuration ---
+set /p "VERSION=Enter version (e.g., 2.1): "
+if not defined VERSION set "VERSION=2.1"
+
+set "APP_NAME=Remuxer V%VERSION%"
+set "SPEC_FILE=remuxer.spec"
+set "DIST_PATH=dist"
+set "BUILD_PATH=build"
+set "EXECUTABLE_PATH=%DIST_PATH%\%APP_NAME%.exe"
+
+:: Set environment variable for the spec file
+set "REMUXER_VERSION=%VERSION%"
+
+:: --- Pre-build Checks ---
+echo Building %APP_NAME% executable...
 echo.
 
-rem Check if Python is available
+rem Check for Python
 py --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ERROR: Python is not installed or not in PATH.
-    echo Please install Python and ensure it's accessible from command line.
     pause
     exit /b 1
 )
 
-rem Check if required files exist
-if not exist "video_remuxer_gui.py" (
-    echo ERROR: video_remuxer_gui.py not found in current directory.
-    echo Note: The Tkinter version has been renamed from video_remuxer_gui.py
-    pause
-    exit /b 1
-)
-
-if not exist "ffmpeg.exe" (
-    echo WARNING: ffmpeg.exe not found in current directory.
-    echo The application will be built without ffmpeg support.
-    set "HAS_FFMPEG=0"
-) else (
-    set "HAS_FFMPEG=1"
-)
-
-if not exist "ffprobe.exe" (
-    echo WARNING: ffprobe.exe not found in current directory.
-    echo The application will be built without ffprobe support.
-    set "HAS_FFPROBE=0"
-) else (
-    set "HAS_FFPROBE=1"
-)
-
-
-rem Install PyInstaller if not already installed
+rem Check for PyInstaller
 py -m pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
@@ -49,24 +38,14 @@ if %errorlevel% neq 0 (
     )
 )
 
-rem Clean up old files
-if exist "dist\Remuxer V2.1.exe" del "dist\Remuxer V2.1.exe"
-if exist "build" rmdir /s /q "build"
-if exist "dist" rmdir /s /q "dist"
+:: --- Cleanup ---
+echo Cleaning up old build directory...
+if exist "%BUILD_PATH%" rmdir /s /q "%BUILD_PATH%"
+echo.
 
-rem Build the executable
-echo Building executable...
-set "PYINSTALLER_CMD=py -m PyInstaller --onefile --windowed --icon "ICOtrans.ico" --add-data "ICOtrans.ico;." --name "Remuxer V2.1" video_remuxer_gui.py"
-
-if %HAS_FFMPEG%==1 (
-    set "PYINSTALLER_CMD=!PYINSTALLER_CMD! --add-data "ffmpeg.exe;.""
-)
-
-if %HAS_FFPROBE%==1 (
-    set "PYINSTALLER_CMD=!PYINSTALLER_CMD! --add-data "ffprobe.exe;.""
-)
-
-!PYINSTALLER_CMD!
+:: --- Build ---
+echo Building executable from %SPEC_FILE%...
+py -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
 
 if %errorlevel% neq 0 (
     echo.
@@ -75,22 +54,21 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-rem Clean up build folder (keep dist folder with executable)
-if exist "build" rmdir /s /q "build"
+:: --- Post-build ---
+rem Clean up build folder
+if exist "%BUILD_PATH%" rmdir /s /q "%BUILD_PATH%"
 
-if exist "dist\Remuxer V2.1.exe" (
+if exist "%EXECUTABLE_PATH%" (
     echo.
-    echo SUCCESS: Remuxer V2.1.exe created in dist folder!
-    for %%A in ("dist\Remuxer V2.1.exe") do echo Size: %%~zA bytes
+    echo SUCCESS: %EXECUTABLE_PATH% created!
+    for %%A in ("%EXECUTABLE_PATH%") do echo Size: %%~zA bytes
     echo.
-    echo You can find your executable at: dist\Remuxer V2.1.exe
 ) else (
     echo ERROR: Executable not found!
     pause
     exit /b 1
 )
 
-echo.
 echo Build completed successfully!
 pause
 endlocal
