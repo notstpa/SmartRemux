@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-version = os.environ.get('REMUXER_VERSION', '2.1')
-app_name = f'Remuxer V{version}'
+# Read the app name from an environment variable, with a fallback default.
+app_name = os.environ.get('PYINSTALLER_APP_NAME', 'StpaRemuxer')
 
 datas = [('ICOtrans.ico', '.')]
 if os.path.exists('ffmpeg.exe'):

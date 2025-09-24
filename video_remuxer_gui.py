@@ -1118,6 +1118,9 @@ class RemuxApp(QMainWindow):
                     self.progress_bar_total.setValue(int(data['total_percent']))
                     self.label_total_progress.setText(f"Total Progress: {data['current']}/{data['total']}")
 
+                elif msg_type == "CURRENT_FILE":
+                    self.label_current_file.setText(f"Current file: {data['filename']}")
+
                 elif msg_type == "PARALLEL_STATUS":
                     self.parallel_status_label.setText(data)
 
