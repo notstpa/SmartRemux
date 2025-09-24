@@ -1,85 +1,96 @@
+
 # =============================================================================
 # IMPORTS AND DEPENDENCIES
 # =============================================================================
-# Import all required Python modules and libraries for the video remuxer GUI
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-import subprocess
+# Import all required Python modules and libraries for the PyQt video remuxer GUI
+import sys
 import os
+import subprocess
 import threading
 import queue
 import time
-import sys
-import shutil
 import json
+import shutil
 import concurrent.futures
+from pathlib import Path
 
+# PyQt imports
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QFormLayout, QLabel, QPushButton, QProgressBar,
+    QTextEdit, QTabWidget, QFrame, QGroupBox, QCheckBox, QRadioButton,
+    QComboBox, QLineEdit, QScrollArea, QSplitter, QFileDialog,
+    QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QTextBrowser,
+    QButtonGroup, QSpinBox, QDoubleSpinBox, QTimeEdit, QDateTimeEdit,
+    QSizePolicy
+)
+from PyQt5.QtCore import (
+    Qt, QThread, pyqtSignal, pyqtSlot, QTimer, QSettings, QDir,
+    QStandardPaths, QUrl, QMimeData, QMutex, QWaitCondition, QObject
+)
+from PyQt5.QtGui import (
+    QIcon, QFont, QPalette, QColor, QPixmap, QImage, QClipboard,
+    QGuiApplication, QDesktopServices
+)
+
+# =============================================================================
+# CONSTANTS AND CONFIGURATION
+# =============================================================================
+WINDOW_WIDTH = 575
+WINDOW_HEIGHT = 600
+PROGRESS_UPDATE_INTERVAL = 100  # milliseconds
+MAX_QUEUE_MESSAGES_PER_UPDATE = 10  # Maximum messages to process per UI update
+FFPROBE_TIMEOUT = 5   # seconds (reduced for faster failure detection)
+FPS_SCAN_TIMEOUT = 8  # seconds (reduced for faster failure detection)
+PROCESS_TIMEOUT = 3600  # seconds (1 hour) - timeout for individual file processing
+LOG_TEXT_HEIGHT = 8
+DEFAULT_TIMESCALE = "30"
+
+# File operation modes
+FILE_ACTION_MOVE = "move"
+FILE_ACTION_KEEP = "keep"
+FILE_ACTION_DELETE = "delete"
+
+# UI States
+UI_STATE_DISABLED = False
+UI_STATE_NORMAL = True
 
 # =============================================================================
 # MAIN APPLICATION CLASS - RemuxApp
 # =============================================================================
-# Enhanced Tkinter-based GUI application for remuxing video files with
-# improved progress tracking, format support, and resume capability
-class RemuxApp(tk.Tk):
+class RemuxApp(QMainWindow):
     """
-    Enhanced Tkinter-based GUI application for remuxing video files,
+    Enhanced PyQt-based GUI application for remuxing video files,
     featuring improved progress tracking, format support, and resume capability.
     """
 
-    # =============================================================================
-    # CONSTANTS AND CONFIGURATION
-    # =============================================================================
-    # Define application-wide constants and settings for consistent behavior
-    WINDOW_WIDTH = 650
-    WINDOW_HEIGHT = 600
-    PROGRESS_UPDATE_INTERVAL = 100  # milliseconds
-    MAX_QUEUE_MESSAGES_PER_UPDATE = 10  # Maximum messages to process per UI update
-    FFPROBE_TIMEOUT = 5   # seconds (reduced for faster failure detection)
-    FPS_SCAN_TIMEOUT = 8  # seconds (reduced for faster failure detection)
-    PROCESS_TIMEOUT = 3600  # seconds (1 hour) - timeout for individual file processing
-    LOG_TEXT_HEIGHT = 8
-    DEFAULT_TIMESCALE = "30"
-
-    # File operation modes
-    FILE_ACTION_MOVE = "move"
-    FILE_ACTION_KEEP = "keep"
-    FILE_ACTION_DELETE = "delete"
-
-    # UI States
-    UI_STATE_DISABLED = "disabled"
-    UI_STATE_NORMAL = "normal"
-
-    # =============================================================================
-    # INITIALIZATION METHOD
-    # =============================================================================
-    # Set up the application on startup including window configuration,
-    # tool validation, state initialization, and widget creation
     def __init__(self):
         super().__init__()
-        self.title("Stpa Remuxer v2.0")
+        self.setWindowTitle("Stpa Remuxer v2.1")
+        self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
-        # Disable focus for all widgets
-        self.option_add("*takeFocus", 0)
-
-        # --- Window dimensions ---
-        window_width, window_height = self.WINDOW_WIDTH, self.WINDOW_HEIGHT
-        self.minsize(window_width, window_height)
-        screen_width, screen_height = self.winfo_screenwidth(), self.winfo_screenheight()
-        center_x = int(screen_width / 2 - window_width / 2)
-        center_y = int(screen_height / 2 - window_height / 2)
-        self.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
-
-        # Set custom window icon with improved error handling and platform optimization
+        # Set custom window icon
         self.set_window_icon("ICOtrans.ico")
 
-        
+        # Center the window
+        self.center_window()
+
+        # DEBUG: Log main window creation
+        # print(f"[DEBUG] Main window created: {self.windowTitle()} at position ({self.x()}, {self.y()}) size ({self.width()}, {self.height()})")
+
         # --- Application State ---
         # Check for required tools (ffmpeg and ffprobe) at startup
         self.ffmpeg_path = self.find_ffmpeg_path()
         self.ffprobe_path = self.find_ffprobe_path()
 
+        # DEBUG: Log tool paths
+        # print(f"[DEBUG] FFmpeg path: {self.ffmpeg_path}")
+        # print(f"[DEBUG] FFprobe path: {self.ffprobe_path}")
+
         # Show error dialog with retry option if required tools are not found
         if not self.ffmpeg_path or not self.ffprobe_path:
+            # print("[DEBUG] Missing tools detected, showing dialog...")
             self.show_missing_tools_dialog()
             return  # Exit __init__ early if tools are missing
 
@@ -94,7 +105,7 @@ class RemuxApp(tk.Tk):
         # --- Threading locks for safety ---
         self.state_lock = threading.Lock()
         self.process_lock = threading.Lock()
-        
+
         # --- Threading Events ---
         self.pause_event = threading.Event()
         self.pause_event.set()  # Set by default (not paused)
@@ -105,7 +116,6 @@ class RemuxApp(tk.Tk):
         self.processing_start_time = None  # Track when processing starts for elapsed time
         self.scan_start_time = None  # Track when scanning starts for elapsed time
 
-
         # --- Supported formats ---
         self.supported_formats = {
             'input': ['.mkv'],
@@ -113,66 +123,650 @@ class RemuxApp(tk.Tk):
         }
 
         # --- Settings Variables ---
-        self.use_timescale_option = tk.BooleanVar(value=True)
-        self.timescale_is_source = tk.BooleanVar(value=True)
-        self.timescale_preset_var = tk.StringVar(value=self.DEFAULT_TIMESCALE)
-        self.timescale_custom_var = tk.StringVar(value="")
-        self.auto_start_remux = tk.BooleanVar(value=True)
-        self.include_audio = tk.BooleanVar(value=True)
-        self.file_action_var = tk.StringVar(value=self.FILE_ACTION_MOVE)
-        self.output_format_var = tk.StringVar(value=".mp4")
-        self.validate_files_var = tk.BooleanVar(value=True)
-        self.preserve_timestamps_var = tk.BooleanVar(value=True)
-        self.preview_commands_var = tk.BooleanVar(value=False)
-        self.overwrite_existing_var = tk.BooleanVar(value=False)
+        self.use_timescale_option = True
+        self.auto_start_remux = True
+        self.include_audio = True
+        self.file_action = FILE_ACTION_KEEP
+        self.output_format = ".mp4"
+        self.validate_files = True
+        self.preserve_timestamps = True
+        self.preview_commands = False
+        self.overwrite_existing = False
+        self.debug_mode = False  # Debug mode for showing detailed logs
 
         # --- Settings State ---
         self.settings_disabled = False
 
+        # Create UI
         self.create_widgets()
-        self.after(self.PROGRESS_UPDATE_INTERVAL, self.check_queue)
+        self.setup_timer()
 
-        # Remove focus from all existing widgets
-        self.remove_focus_from_all_widgets()
+        # Connect auto-save signals
+        self.setup_auto_save()
 
-        # Specifically configure notebook tabs
-        self.configure_notebook_tabs()
+    def center_window(self):
+        """Center the window on the screen."""
+        frame_geometry = self.frameGeometry()
+        center_point = QGuiApplication.primaryScreen().availableGeometry().center()
+        frame_geometry.moveCenter(center_point)
+        self.move(frame_geometry.topLeft())
 
-        # Apply tab styling after a short delay to ensure tabs are created
-        self.after(100, self.apply_tab_styling)
+    def setup_timer(self):
+        """Set up the progress update timer."""
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.check_queue)
+        self.timer.start(PROGRESS_UPDATE_INTERVAL)
 
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+    def setup_auto_save(self):
+        """Set up auto-save functionality for settings."""
+        # Connect all setting controls to auto-save when changed
+        # Checkboxes
+        self.auto_start_checkbox.stateChanged.connect(self.update_auto_start_setting)
+        self.audio_checkbox.stateChanged.connect(self.update_checkbox_settings)
+        self.timestamp_checkbox.stateChanged.connect(self.update_checkbox_settings)
+        self.overwrite_checkbox.stateChanged.connect(self.update_checkbox_settings)
+        self.validate_checkbox.stateChanged.connect(self.update_checkbox_settings)
+        self.preview_checkbox.stateChanged.connect(self.update_checkbox_settings)
+        self.timescale_checkbox.stateChanged.connect(self.update_checkbox_settings)
 
-        # Load saved settings FIRST
+        # Radio Buttons (connect the group)
+        self.file_action_group.buttonToggled.connect(self.update_file_action_setting)
+
+        # Combos and Line Edits
+        self.output_format_combo.currentTextChanged.connect(self.update_output_format_setting)
+
+        # Connect all update handlers to also trigger auto-save
+        for widget in self.settings_tab.findChildren(QWidget):
+            if isinstance(widget, (QCheckBox, QRadioButton, QComboBox, QLineEdit)):
+                if hasattr(widget, 'stateChanged'): widget.stateChanged.connect(self.auto_save_settings)
+                if hasattr(widget, 'toggled'): widget.toggled.connect(self.auto_save_settings)
+                if hasattr(widget, 'currentTextChanged'): widget.currentTextChanged.connect(self.auto_save_settings)
+                if hasattr(widget, 'textChanged'): widget.textChanged.connect(self.auto_save_settings)
+
+    def auto_save_settings(self):
+        """Auto-save settings when they change."""
+        try:
+            self.save_settings()
+            # Show brief visual feedback that settings were saved
+            try:
+                self.statusBar().showMessage("Settings saved", 2000)
+            except:
+                # If no status bar, just print to console
+                print("Settings saved")
+        except Exception as e:
+            print(f"Failed to auto-save settings: {e}")
+
+    def create_widgets(self):
+        """Create the main interface components."""
+        # Create central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # Main layout
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)  # Add margins
+
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+
+        # Create tabs
+        self.remuxer_tab = QWidget()
+        self.settings_tab = QWidget()
+        self.logs_tab = QWidget()
+
+        self.tab_widget.addTab(self.remuxer_tab, "Remuxer")
+        self.tab_widget.addTab(self.settings_tab, "Settings")
+        self.tab_widget.addTab(self.logs_tab, "Logs")
+
+        # Create widgets for each tab
+        self.create_remuxer_widgets()
+        self.create_settings_widgets()
+        self.create_logs_widgets()
+
+    def create_remuxer_widgets(self):
+        """Create widgets for the remuxer tab."""
+        layout = QVBoxLayout(self.remuxer_tab)
+        layout.setSpacing(5)  # Reduce space between each QGroupBox
+        layout.setContentsMargins(10, 10, 10, 10)  # Add margins
+
+        # --- Source & Output Frame ---
+        source_output_group = QGroupBox("Source & Output")
+        # ADD THIS STYLESHEET for consistent, compact appearance
+        source_output_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(source_output_group)
+
+        source_output_layout = QGridLayout(source_output_group)
+        # ADJUST THESE MARGINS to reduce internal padding
+        # Values are (left, top, right, bottom)
+        source_output_layout.setContentsMargins(10, 15, 10, 5)
+
+        # Source folder selection row
+        source_output_layout.addWidget(QLabel("Source:"), 0, 0)
+        self.label_input_path = QLabel("No folder or files selected")
+        self.label_input_path.setWordWrap(True)
+        source_output_layout.addWidget(self.label_input_path, 0, 1, 1, 2)
+        self.btn_browse_folder = QPushButton("Browse Folder")
+        self.btn_browse_folder.clicked.connect(self.browse_input_folder)
+        source_output_layout.addWidget(self.btn_browse_folder, 0, 3)
+        self.btn_browse_files = QPushButton("Browse Files")
+        self.btn_browse_files.clicked.connect(self.browse_input_files)
+        source_output_layout.addWidget(self.btn_browse_files, 0, 4)
+
+        # Output folder selection row
+        source_output_layout.addWidget(QLabel("Output:"), 1, 0)
+        self.label_output_path = QLabel("Same as source")
+        source_output_layout.addWidget(self.label_output_path, 1, 1)
+        self.btn_browse_output = QPushButton("Browse")
+        self.btn_browse_output.clicked.connect(self.browse_output_folder)
+        source_output_layout.addWidget(self.btn_browse_output, 1, 3)
+        self.btn_clear_output = QPushButton("Clear")
+        self.btn_clear_output.clicked.connect(self.clear_output_folder)
+        source_output_layout.addWidget(self.btn_clear_output, 1, 4)
+
+        # --- Scanning Frame ---
+        self.scan_group = QGroupBox("Step 1: File Preparation")
+        # ADD THIS STYLESHEET for consistent, compact appearance
+        self.scan_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(self.scan_group)
+
+        scan_layout = QVBoxLayout(self.scan_group)
+        # ADJUST THESE MARGINS to reduce internal padding
+        # Values are (left, top, right, bottom)
+        scan_layout.setContentsMargins(10, 15, 10, 5)
+
+        self.label_scan_progress = QLabel("Ready to scan.")
+        scan_layout.addWidget(self.label_scan_progress)
+
+        self.progress_bar_scan = QProgressBar()
+        self.progress_bar_scan.setRange(0, 100)
+        scan_layout.addWidget(self.progress_bar_scan)
+
+        # Timer label for scan elapsed time
+        self.label_scan_timer = QLabel("")
+        self.label_scan_timer.setStyleSheet("font-style: italic; color: gray;")
+        scan_layout.addWidget(self.label_scan_timer)
+
+        # --- Remuxing Frame ---
+        self.progress_group = QGroupBox("Step 2: Processing Files")
+        # ADD THIS STYLESHEET for consistent, compact appearance
+        self.progress_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(self.progress_group)
+
+        progress_layout = QVBoxLayout(self.progress_group)
+        # ADJUST THESE MARGINS to reduce internal padding
+        # Values are (left, top, right, bottom)
+        progress_layout.setContentsMargins(10, 15, 10, 5)
+
+        # Current Activity Section
+        current_activity_group = QGroupBox("Current Activity")
+        # ADD THIS STYLESHEET for consistent, compact appearance
+        current_activity_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        progress_layout.addWidget(current_activity_group)
+
+        current_layout = QVBoxLayout(current_activity_group)
+        # ADJUST THESE MARGINS to reduce internal padding
+        # Values are (left, top, right, bottom)
+        current_layout.setContentsMargins(10, 15, 10, 5)
+
+        self.label_current_file = QLabel("Current file: None")
+        self.label_current_file.setStyleSheet("font-weight: bold;")
+        current_layout.addWidget(self.label_current_file)
+
+        # Overall progress
+        self.label_total_progress = QLabel("Total Progress: 0/0")
+        progress_layout.addWidget(self.label_total_progress)
+
+        self.progress_bar_total = QProgressBar()
+        self.progress_bar_total.setRange(0, 100)
+        progress_layout.addWidget(self.progress_bar_total)
+
+        self.label_status = QLabel("Ready")
+        progress_layout.addWidget(self.label_status)
+
+        # Parallel processing status
+        self.parallel_status_label = QLabel("")
+        progress_layout.addWidget(self.parallel_status_label)
+
+        # Control buttons frame
+        buttons_layout = QHBoxLayout()
+        progress_layout.addLayout(buttons_layout)
+
+        buttons_layout.addStretch(1)  # Add stretchable space on the left
+
+        self.btn_start_remux = QPushButton("Start Remux")
+        self.btn_start_remux.clicked.connect(self.start_remux_thread)
+        self.btn_start_remux.setEnabled(False)
+        buttons_layout.addWidget(self.btn_start_remux)
+
+        self.btn_pause = QPushButton("Pause")
+        self.btn_pause.clicked.connect(self.toggle_pause)
+        self.btn_pause.setEnabled(False)
+        buttons_layout.addWidget(self.btn_pause)
+
+        self.btn_skip = QPushButton("Skip Current")
+        self.btn_skip.clicked.connect(self.skip_current_file)
+        self.btn_skip.setEnabled(False)
+        buttons_layout.addWidget(self.btn_skip)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.cancel_processing)
+        self.btn_cancel.setEnabled(False)
+        buttons_layout.addWidget(self.btn_cancel)
+
+        buttons_layout.addStretch(1)  # Add stretchable space on the right
+
+        # --- Control Buttons Frame ---
+        main_buttons_layout = QHBoxLayout()
+        layout.addLayout(main_buttons_layout)
+
+        main_buttons_layout.addStretch(1)  # Add stretchable space on the left
+
+        self.btn_run = QPushButton("Scan Files")
+        self.btn_run.clicked.connect(self.handle_run_click)
+        self.btn_run.setEnabled(False)
+        main_buttons_layout.addWidget(self.btn_run)
+
+        # Auto-start remux checkbox
+        self.auto_start_checkbox = QCheckBox("Auto-start Remux")
+        self.auto_start_checkbox.setChecked(self.auto_start_remux)
+        self.auto_start_checkbox.stateChanged.connect(self.update_auto_start_setting)
+        main_buttons_layout.addWidget(self.auto_start_checkbox)
+
+        main_buttons_layout.addStretch(1)  # Add stretchable space on the right
+
+        # ADD THIS LINE AT THE END OF THE LAYOUT
+        layout.addStretch(1)
+
+    def create_settings_widgets(self):
+        """Create widgets for the settings tab."""
+        layout = QVBoxLayout(self.settings_tab)
+        layout.setSpacing(5)  # Reduce space between each QGroupBox
+        layout.setContentsMargins(10, 10, 10, 10)
+
+
+        # --- Output Format ---
+        output_format_group = QGroupBox("Output Format")
+        # ADD THIS STYLESHEET to control the box's own margins and title padding
+        output_format_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(output_format_group)
+
+        format_layout = QHBoxLayout(output_format_group)
+        # CHANGE THIS to reduce the padding inside the box
+        # Values are (left, top, right, bottom)
+        format_layout.setContentsMargins(10, 15, 10, 5)
+        format_layout.addWidget(QLabel("Output format:"))
+        self.output_format_combo = QComboBox()
+        self.output_format_combo.addItems(self.supported_formats['output'])
+        self.output_format_combo.setCurrentText(self.output_format)
+        format_layout.addWidget(self.output_format_combo)
+        info_btn = QPushButton("?")
+        info_btn.setFixedWidth(25)
+        info_btn.clicked.connect(self.show_output_format_info)
+        format_layout.addWidget(info_btn)
+        format_layout.addStretch(1)  # MOVED: Now the stretch is at the end
+
+        # --- File Management ---
+        file_options_group = QGroupBox("Original File Management")
+        # ADD THIS STYLESHEET to control the box's own margins and title padding
+        file_options_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(file_options_group)
+
+        file_layout = QVBoxLayout(file_options_group)
+        file_layout.setSpacing(2)  # Reduce space between the radio buttons
+        # CHANGE THIS to reduce the padding inside the box
+        # Values are (left, top, right, bottom)
+        file_layout.setContentsMargins(10, 15, 10, 5)
+
+        self.file_action_group = QButtonGroup(self)
+
+        self.move_radio = QRadioButton("Move original to subfolder")
+        self.move_radio.setChecked(self.file_action == FILE_ACTION_MOVE)
+        self.file_action_group.addButton(self.move_radio)
+        file_layout.addWidget(self.move_radio)
+
+        self.keep_radio = QRadioButton("Keep original file in place (default)")
+        self.keep_radio.setChecked(self.file_action == FILE_ACTION_KEEP)
+        self.file_action_group.addButton(self.keep_radio)
+        file_layout.addWidget(self.keep_radio)
+
+        delete_layout = QHBoxLayout()
+        delete_layout.setSpacing(2)  # Reduce spacing between elements
+        file_layout.addLayout(delete_layout)
+
+        self.delete_radio = QRadioButton("Delete original file")
+        self.delete_radio.setChecked(self.file_action == FILE_ACTION_DELETE)
+        self.file_action_group.addButton(self.delete_radio)
+        delete_layout.addWidget(self.delete_radio)
+
+        delete_info = QLabel("(Not recommended)")
+        delete_info.setStyleSheet("color: red; font-size: 8pt;")
+        delete_layout.addWidget(delete_info)
+
+        delete_info_btn = QPushButton("?")
+        delete_info_btn.setFixedWidth(25) # ADD THIS to keep the button small
+        delete_info_btn.clicked.connect(self.show_file_management_info)
+        delete_layout.addWidget(delete_info_btn)
+
+        delete_layout.addStretch(1) # ADD THIS to absorb extra space
+
+        # --- Processing Options ---
+        processing_group = QGroupBox("Processing Options")
+        # ADD THIS STYLESHEET to control the box's own margins and title padding
+        processing_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(processing_group)
+
+        processing_layout = QVBoxLayout(processing_group)
+        # CHANGE THIS to reduce the padding inside the box
+        # Values are (left, top, right, bottom)
+        processing_layout.setContentsMargins(10, 15, 10, 5)
+        processing_layout.setSpacing(4) # Also reduce spacing between items in this group
+
+        # Audio options
+        audio_layout = QHBoxLayout()
+        audio_layout.setSpacing(2)  # Reduce spacing between elements
+        self.audio_checkbox = QCheckBox("Include Audio Streams")
+        self.audio_checkbox.setChecked(self.include_audio)
+        audio_layout.addWidget(self.audio_checkbox)
+        audio_info_btn = QPushButton("?")
+        audio_info_btn.setFixedWidth(25)  # Give the button a small, fixed width
+        audio_info_btn.clicked.connect(self.show_audio_info)
+        audio_layout.addWidget(audio_info_btn)
+        audio_layout.addStretch(1)  # Add stretch to push widgets to the left
+        processing_layout.addLayout(audio_layout)
+
+        # Other processing options
+        timestamp_layout = QHBoxLayout()
+        timestamp_layout.setSpacing(2)  # Reduce spacing between elements
+        self.timestamp_checkbox = QCheckBox("Preserve original file timestamps")
+        self.timestamp_checkbox.setChecked(self.preserve_timestamps)
+        timestamp_layout.addWidget(self.timestamp_checkbox)
+        timestamp_info_btn = QPushButton("?")
+        timestamp_info_btn.setFixedWidth(25)
+        timestamp_info_btn.clicked.connect(self.show_timestamp_info)
+        timestamp_layout.addWidget(timestamp_info_btn)
+        timestamp_layout.addStretch(1)  # Add stretch to push widgets to the left
+        processing_layout.addLayout(timestamp_layout)
+
+        overwrite_layout = QHBoxLayout()
+        overwrite_layout.setSpacing(2)  # Reduce spacing between elements
+        self.overwrite_checkbox = QCheckBox("Overwrite existing output files")
+        self.overwrite_checkbox.setChecked(self.overwrite_existing)
+        overwrite_layout.addWidget(self.overwrite_checkbox)
+        overwrite_info_btn = QPushButton("?")
+        overwrite_info_btn.setFixedWidth(25)
+        overwrite_info_btn.clicked.connect(self.show_overwrite_info)
+        overwrite_layout.addWidget(overwrite_info_btn)
+        overwrite_layout.addStretch(1)  # Add stretch to push widgets to the left
+        processing_layout.addLayout(overwrite_layout)
+
+        # --- Advanced Processing Options ---
+        advanced_group = QGroupBox("Advanced Processing Options")
+        # ADD THIS STYLESHEET to control the box's own margins and title padding
+        advanced_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(advanced_group)
+
+        advanced_layout = QVBoxLayout(advanced_group)
+        # CHANGE THIS to reduce the padding inside the box
+        # Values are (left, top, right, bottom)
+        advanced_layout.setContentsMargins(10, 15, 10, 5)
+
+        # File validation option
+        validate_layout = QHBoxLayout()
+        validate_layout.setSpacing(2)  # Reduce spacing between elements
+        self.validate_checkbox = QCheckBox("Validate files before processing")
+        self.validate_checkbox.setChecked(self.validate_files)
+        validate_layout.addWidget(self.validate_checkbox)
+        validate_info_btn = QPushButton("?")
+        validate_info_btn.setFixedWidth(25)
+        validate_info_btn.clicked.connect(self.show_validation_info)
+        validate_layout.addWidget(validate_info_btn)
+        validate_layout.addStretch(1)  # Add stretch to push widgets to the left
+        advanced_layout.addLayout(validate_layout)
+
+        # Command preview option
+        preview_layout = QHBoxLayout()
+        preview_layout.setSpacing(2)  # Reduce spacing between elements
+        self.preview_checkbox = QCheckBox("Show command preview before remuxing")
+        self.preview_checkbox.setChecked(self.preview_commands)
+        preview_layout.addWidget(self.preview_checkbox)
+        preview_info_btn = QPushButton("?")
+        preview_info_btn.setFixedWidth(25)
+        preview_info_btn.clicked.connect(self.show_preview_info)
+        preview_layout.addWidget(preview_info_btn)
+        preview_layout.addStretch(1)  # Add stretch to push widgets to the left
+        advanced_layout.addLayout(preview_layout)
+
+        # Video Timescale (VFR fix) option
+        timescale_layout = QHBoxLayout()
+        timescale_layout.setSpacing(2)  # Reduce spacing between elements
+        self.timescale_checkbox = QCheckBox("Set video timescale")
+        self.timescale_checkbox.setChecked(self.use_timescale_option)
+        timescale_layout.addWidget(self.timescale_checkbox)
+        timescale_info_btn = QPushButton("?")
+        timescale_info_btn.setFixedWidth(25)
+        timescale_info_btn.clicked.connect(self.show_timescale_info)
+        timescale_layout.addWidget(timescale_info_btn)
+        timescale_layout.addStretch(1)  # Add stretch to push widgets to the left
+        advanced_layout.addLayout(timescale_layout)
+
+        # --- REMOVED: Video Timescale (VFR fix) GroupBox ---
+        # The timescale option is now integrated into the Advanced Processing group.
+        # The QRadioButton is also removed as it's now redundant.
+        # The following UI elements are no longer needed:
+        # self.fps_group, self.timescale_options_container, self.timescale_source_radio
+        # Settings management buttons
+        settings_buttons_layout = QHBoxLayout()
+        layout.addLayout(settings_buttons_layout)
+
+        settings_buttons_layout.addStretch(1)  # Add stretchable space on the left
+
+        self.restore_defaults_btn = QPushButton("Restore Defaults")
+        self.restore_defaults_btn.clicked.connect(self.restore_defaults)
+        settings_buttons_layout.addWidget(self.restore_defaults_btn)
+
+        settings_buttons_layout.addStretch(1)  # Add stretchable space on the right
+
+        # Hide Step 2 initially - only show after scanning files
+        self.progress_group.hide()
+
+        # ADD THIS LINE AT THE END OF THE LAYOUT
+        layout.addStretch(1)
+
+        # Load saved settings after creating all widgets
         self.load_settings()
 
-        # Add auto-save traces to all settings variables AFTER loading
-        self.auto_start_remux.trace_add("write", lambda *args: self.auto_save_settings())
-        self.include_audio.trace_add("write", lambda *args: self.auto_save_settings())
-        self.file_action_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.output_format_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.validate_files_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.preserve_timestamps_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.preview_commands_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.overwrite_existing_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.use_timescale_option.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_is_source.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_preset_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_custom_var.trace_add("write", lambda *args: self.auto_save_settings())
+    def create_logs_widgets(self):
+        """Create widgets for the logs tab."""
+        layout = QVBoxLayout(self.logs_tab)
+        layout.setSpacing(5)  # Reduce space between each QGroupBox
+        layout.setContentsMargins(10, 10, 10, 10)  # Add margins
 
-        # Ensure timescale options are properly initialized on startup
-        if self.use_timescale_option.get():
-            self.toggle_timescale_selector()
+        # --- Log Output Frame ---
+        log_group = QGroupBox("Log Output")
+        log_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # ADD THIS STYLESHEET for consistent, compact appearance
+        log_group.setStyleSheet("""
+            QGroupBox {
+                margin-top: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+        """)
+        layout.addWidget(log_group)
+
+        log_layout = QVBoxLayout(log_group)
+        # ADJUST THESE MARGINS to reduce internal padding
+        # Values are (left, top, right, bottom)
+        log_layout.setContentsMargins(10, 15, 10, 10)
+
+        # Button frame for log controls
+        log_button_layout = QHBoxLayout()
+        log_layout.addLayout(log_button_layout)
+
+        # Debug toggle checkbox
+        self.debug_checkbox = QCheckBox("Debug Info")
+        self.debug_checkbox.setChecked(self.debug_mode)
+        self.debug_checkbox.stateChanged.connect(self.toggle_debug_mode)
+        log_button_layout.addWidget(self.debug_checkbox)
+
+        log_button_layout.addStretch(1)  # Add stretchable space to push buttons to the right
+
+        self.copy_log_btn = QPushButton("Copy Log")
+        self.copy_log_btn.clicked.connect(self.copy_log_to_clipboard)
+        log_button_layout.addWidget(self.copy_log_btn)
+
+        self.clear_log_btn = QPushButton("Clear Log")
+        self.clear_log_btn.clicked.connect(self.clear_log)
+        log_button_layout.addWidget(self.clear_log_btn)
+
+        self.export_log_btn = QPushButton("Export Log")
+        self.export_log_btn.clicked.connect(self.export_log_to_file)
+        log_button_layout.addWidget(self.export_log_btn)
+
+        # Log text area
+        self.log_text = QTextEdit()
+        self.log_text.setMinimumHeight(300)  # Back to original height
+        self.log_text.setReadOnly(True)
+        self.log_text.setFont(QFont("Consolas", 9))  # Better monospace font
+        self.log_text.setLineWrapMode(QTextEdit.NoWrap)  # No word wrapping
+
+        # Set log text styling for better readability
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+
+        log_layout.addWidget(self.log_text)
+
+    def clear_log(self):
+        """Clear the log output."""
+        self.log_text.clear()
+
+    def toggle_debug_mode(self, state):
+        """Toggle debug mode on/off."""
+        self.debug_mode = (state == Qt.Checked)
+        if self.debug_mode:
+            self.log_text.append("[DEBUG] Debug mode enabled - detailed logging will be shown")
+        else:
+            pass
+            # self.log_text.append("[DEBUG] Debug mode disabled - only normal messages will be shown")
+
+
+    def export_log_to_file(self):
+        """Export the log output to a text file."""
+        try:
+            log_content = self.log_text.toPlainText()
+
+            if not log_content.strip():
+                QMessageBox.information(self, "Info", "No log content to export.")
+                return
+
+            # Get current timestamp for filename
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"remuxer_log_{timestamp}.txt"
+
+            # Open file dialog
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export Log", default_filename, "Text files (*.txt)"
+            )
+
+            if filename:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(log_content)
+
+                QMessageBox.information(self, "Success", f"Log exported to:\n{filename}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export log: {str(e)}")
 
     # =============================================================================
     # SETTINGS MANAGEMENT
     # =============================================================================
-    # Handle application settings persistence, loading, saving, and restoration
     def get_settings_file_path(self):
         """Get the path to the settings file."""
         try:
             # Use the application's directory for settings
-            # This allows different settings for different application locations
             if getattr(sys, 'frozen', False):
                 # PyInstaller executable
                 app_dir = os.path.dirname(sys.executable)
@@ -189,18 +783,15 @@ class RemuxApp(tk.Tk):
         """Save current settings to file."""
         try:
             settings = {
-                "auto_start_remux": self.auto_start_remux.get(),
-                "include_audio": self.include_audio.get(),
-                "file_action": self.file_action_var.get(),
-                "output_format": self.output_format_var.get(),
-                "validate_files": self.validate_files_var.get(),
-                "preserve_timestamps": self.preserve_timestamps_var.get(),
-                "preview_commands": self.preview_commands_var.get(),
-                "overwrite_existing": self.overwrite_existing_var.get(),
-                "use_timescale": self.use_timescale_option.get(),
-                "timescale_is_source": self.timescale_is_source.get(),
-                "timescale_preset": self.timescale_preset_var.get(),
-                "timescale_custom": self.timescale_custom_var.get(),
+                "auto_start_remux": self.auto_start_remux,
+                "include_audio": self.include_audio,
+                "file_action": self.file_action,
+                "output_format": self.output_format,
+                "validate_files": self.validate_files,
+                "preserve_timestamps": self.preserve_timestamps,
+                "preview_commands": self.preview_commands,
+                "overwrite_existing": self.overwrite_existing,
+                "use_timescale": self.use_timescale_option,
             }
 
             with open(self.get_settings_file_path(), 'w') as f:
@@ -208,33 +799,6 @@ class RemuxApp(tk.Tk):
 
         except Exception as e:
             print(f"Failed to save settings: {e}")
-
-    def auto_save_settings(self):
-        """Auto-save settings when they change."""
-        try:
-            self.save_settings()
-            # Show brief visual feedback that settings were saved
-            self.show_settings_saved_feedback()
-        except Exception as e:
-            print(f"Failed to auto-save settings: {e}")
-
-    def show_settings_saved_feedback(self):
-        """Show brief visual feedback that settings were saved."""
-        try:
-            # Create a small label to show "Settings saved" briefly
-            if not hasattr(self, 'settings_feedback_label'):
-                self.settings_feedback_label = ttk.Label(self.settings_tab, text="✓ Settings saved", foreground="green", font=("Segoe UI", 8, "italic"))
-                self.settings_feedback_label.place(relx=1.0, rely=0.0, x=-10, y=10, anchor="ne")
-
-            # Update the label text and make it visible
-            self.settings_feedback_label.config(text="✓ Settings saved")
-            self.settings_feedback_label.lift()
-
-            # Hide the feedback after 100 seconds
-            self.after(100, lambda: self.settings_feedback_label.config(text=""))
-
-        except Exception as e:
-            print(f"Failed to show settings feedback: {e}")
 
     def load_settings(self):
         """Load settings from file."""
@@ -246,35 +810,37 @@ class RemuxApp(tk.Tk):
 
                 # Apply loaded settings
                 if "auto_start_remux" in settings:
-                    self.auto_start_remux.set(settings["auto_start_remux"])
+                    self.auto_start_remux = settings["auto_start_remux"]
+                    self.auto_start_checkbox.setChecked(self.auto_start_remux)
                 if "include_audio" in settings:
-                    self.include_audio.set(settings["include_audio"])
+                    self.include_audio = settings["include_audio"]
+                    self.audio_checkbox.setChecked(self.include_audio)
                 if "file_action" in settings:
-                    self.file_action_var.set(settings["file_action"])
+                    self.file_action = settings["file_action"]
+                    if self.file_action == FILE_ACTION_MOVE:
+                        self.move_radio.setChecked(True)
+                    elif self.file_action == FILE_ACTION_KEEP:
+                        self.keep_radio.setChecked(True)
+                    elif self.file_action == FILE_ACTION_DELETE:
+                        self.delete_radio.setChecked(True)
                 if "output_format" in settings:
-                    self.output_format_var.set(settings["output_format"])
+                    self.output_format = settings["output_format"]
+                    self.output_format_combo.setCurrentText(self.output_format)
                 if "validate_files" in settings:
-                    self.validate_files_var.set(settings["validate_files"])
+                    self.validate_files = settings["validate_files"]
+                    self.validate_checkbox.setChecked(self.validate_files)
                 if "preserve_timestamps" in settings:
-                    self.preserve_timestamps_var.set(settings["preserve_timestamps"])
+                    self.preserve_timestamps = settings["preserve_timestamps"]
+                    self.timestamp_checkbox.setChecked(self.preserve_timestamps)
                 if "preview_commands" in settings:
-                    self.preview_commands_var.set(settings["preview_commands"])
+                    self.preview_commands = settings["preview_commands"]
+                    self.preview_checkbox.setChecked(self.preview_commands)
                 if "overwrite_existing" in settings:
-                    self.overwrite_existing_var.set(settings["overwrite_existing"])
+                    self.overwrite_existing = settings["overwrite_existing"]
+                    self.overwrite_checkbox.setChecked(self.overwrite_existing)
                 if "use_timescale" in settings:
-                    self.use_timescale_option.set(settings["use_timescale"])
-                if "timescale_is_source" in settings:
-                    self.timescale_is_source.set(settings["timescale_is_source"])
-                if "timescale_preset" in settings:
-                    self.timescale_preset_var.set(settings["timescale_preset"])
-                if "timescale_custom" in settings:
-                    self.timescale_custom_var.set(settings["timescale_custom"])
-
-                # Update UI elements that depend on these settings
-                self.on_timescale_option_change()
-                # Ensure timescale options are properly initialized
-                if self.use_timescale_option.get():
-                    self.toggle_timescale_selector()
+                    self.use_timescale_option = settings["use_timescale"]
+                    self.timescale_checkbox.setChecked(self.use_timescale_option)
 
         except Exception as e:
             print(f"Failed to load settings: {e}")
@@ -283,636 +849,31 @@ class RemuxApp(tk.Tk):
         """Restore all settings to their default values."""
         try:
             # Reset all settings to defaults
-            self.auto_start_remux.set(True)  # Changed to True as requested
-            self.include_audio.set(True)
-            self.file_action_var.set(self.FILE_ACTION_MOVE)
-            self.output_format_var.set(".mp4")
-            self.validate_files_var.set(True)
-            self.preserve_timestamps_var.set(True)
-            self.preview_commands_var.set(False)
-            self.overwrite_existing_var.set(False)
-            self.use_timescale_option.set(True)
-            self.timescale_is_source.set(True)
-            self.timescale_preset_var.set(self.DEFAULT_TIMESCALE)
-            self.timescale_custom_var.set("")
-
-            # Update UI elements
-            self.on_timescale_option_change()
-            # Ensure timescale options are properly initialized
-            if self.use_timescale_option.get():
-                self.toggle_timescale_selector()
+            self.auto_start_remux = True
+            self.auto_start_checkbox.setChecked(True)
+            self.include_audio = True
+            self.audio_checkbox.setChecked(True)
+            self.file_action = FILE_ACTION_KEEP
+            self.keep_radio.setChecked(True)
+            self.output_format = ".mp4"
+            self.output_format_combo.setCurrentText(self.output_format)
+            self.validate_files = True
+            self.validate_checkbox.setChecked(True)
+            self.preserve_timestamps = True
+            self.timestamp_checkbox.setChecked(True)
+            self.preview_commands = False
+            self.preview_checkbox.setChecked(False)
+            self.overwrite_existing = False
+            self.overwrite_checkbox.setChecked(False)
+            self.use_timescale_option = True
+            self.timescale_checkbox.setChecked(True)
 
         except Exception as e:
             print(f"Failed to restore defaults: {e}")
 
     # =============================================================================
-    # UI SETUP METHODS
-    # =============================================================================
-    # Configure UI appearance, focus management, and widget styling
-    def remove_focus_from_all_widgets(self):
-        """Remove focus capability from all widgets to eliminate dotted borders."""
-        def configure_widget(widget):
-            try:
-                # Remove highlight border
-                widget.configure(highlightthickness=0, takefocus=0)
-                # For ttk widgets, also configure style
-                if hasattr(widget, 'configure'):
-                    try:
-                        widget.configure(takefocus=False)
-                    except:
-                        pass
-            except:
-                pass
-
-        def traverse_widgets(parent):
-            configure_widget(parent)
-            for child in parent.winfo_children():
-                configure_widget(child)
-                traverse_widgets(child)
-
-        traverse_widgets(self)
-
-    def configure_notebook_tabs(self):
-        """Specifically configure notebook tabs to remove focus dotted lines."""
-        try:
-            # Configure the notebook widget itself
-            self.notebook.configure(takefocus=0)
-
-            # The option database settings should handle the tabs
-            # Just ensure the notebook doesn't take focus
-
-        except Exception as e:
-            print(f"Error configuring notebook tabs: {e}")
-
-    def apply_tab_styling(self):
-        """Apply styling to notebook tabs after they're created."""
-        try:
-            # Create a completely custom style for tabs
-            style = ttk.Style()
-
-            # Configure the tab style to remove all focus indicators
-            style.configure("NoFocus.TNotebook.Tab",
-                          background=self.cget("background"),
-                          foreground="black",
-                          lightcolor=self.cget("background"),
-                          borderwidth=0,
-                          focuscolor=self.cget("background"),
-                          focusthickness=0,
-                          highlightthickness=0,
-                          highlightcolor=self.cget("background"))
-
-            # Also configure the default TNotebook.Tab style
-            style.configure("TNotebook.Tab",
-                          focuscolor=self.cget("background"),
-                          focusthickness=0,
-                          highlightthickness=0,
-                          highlightcolor=self.cget("background"))
-
-            # Apply this style to all existing tabs
-            for tab_id in self.notebook.tabs():
-                try:
-                    self.notebook.tab(tab_id, style="NoFocus.TNotebook.Tab")
-                except tk.TclError:
-                    # If the style doesn't exist, skip it
-                    pass
-
-        except Exception as e:
-            print(f"Error applying tab styling: {e}")
-
-    # =============================================================================
-    # WIDGET CREATION METHODS
-    # =============================================================================
-    # Build the main interface components including tabs, frames, and controls
-    def create_widgets(self):
-        # Configure notebook to prevent focus indicators
-        style = ttk.Style()
-        style.configure("TNotebook",
-                      focuscolor=self.cget("background"),
-                      focusthickness=0,
-                      highlightthickness=0)
-
-        self.notebook = ttk.Notebook(self, takefocus=0)
-        self.notebook.pack(padx=10, pady=10, expand=True, fill="both")
-
-        # Bind to prevent focus on tab changes
-        self.notebook.bind("<<NotebookTabChanged>>", lambda e: self.focus())
-
-        self.remuxer_tab = ttk.Frame(self.notebook, padding=(5, 5))
-        self.notebook.add(self.remuxer_tab, text="Remuxer")
-
-        self.settings_tab = ttk.Frame(self.notebook, padding=(5, 5))
-        self.notebook.add(self.settings_tab, text="Settings")
-
-        # Advanced tab removed - options moved to Settings tab
-
-        self.logs_tab = ttk.Frame(self.notebook, padding=(5, 5))
-        self.notebook.add(self.logs_tab, text="Logs")
-
-        self.create_remuxer_widgets()
-        self.create_settings_widgets()
-        self.create_logs_widgets()
-
-    def create_remuxer_widgets(self):
-        # --- Source & Output Frame ---
-        frame_folder = ttk.LabelFrame(self.remuxer_tab, text="Source & Output", padding=(15, 8))
-        frame_folder.pack(padx=10, pady=5, fill="x")
-
-        # Source folder selection row
-        ttk.Label(frame_folder, text="Source:").grid(row=0, column=0, sticky="w", pady=(0, 5))
-        self.label_input_path = ttk.Label(frame_folder, text="No folder or files selected", wraplength=450)
-        self.label_input_path.grid(row=0, column=1, sticky="w", pady=(0, 5), columnspan=2)
-        self.btn_browse_folder = ttk.Button(frame_folder, text="Browse Folder", command=self.browse_input_folder)
-        self.btn_browse_folder.grid(row=0, column=3, padx=(5, 0), pady=(0, 5))
-        self.btn_browse_files = ttk.Button(frame_folder, text="Browse Files", command=self.browse_input_files)
-        self.btn_browse_files.grid(row=0, column=4, padx=(5, 0), pady=(0, 5))
-
-        ttk.Label(frame_folder, text="Output:").grid(row=1, column=0, sticky="w", pady=(0, 5))
-        self.label_output_path = ttk.Label(frame_folder, text="Same as source", wraplength=450)
-        self.label_output_path.grid(row=1, column=1, sticky="w", pady=(0, 5))
-        self.btn_browse_output = ttk.Button(frame_folder, text="Browse", command=self.browse_output_folder, width=8)
-        self.btn_browse_output.grid(row=1, column=3, padx=(5, 0), pady=(0, 5))
-        self.btn_clear_output = ttk.Button(frame_folder, text="Clear", command=self.clear_output_folder, width=8)
-        self.btn_clear_output.grid(row=1, column=4, padx=(5, 0), pady=(0, 5))
-
-        # --- Scanning Frame ---
-        self.frame_scan = ttk.LabelFrame(self.remuxer_tab, text="Step 1: File Preparation", padding=(15, 8))
-        self.frame_scan.pack(padx=10, pady=(5, 0), fill="x")
-        self.label_scan_progress = ttk.Label(self.frame_scan, text="Ready to scan.")
-        self.label_scan_progress.pack(pady=(0, 3), anchor="w")
-        self.progress_bar_scan = ttk.Progressbar(self.frame_scan, orient="horizontal", mode="determinate")
-        self.progress_bar_scan.pack(fill="x", pady=3)
-
-        # Timer label for scan elapsed time
-        self.label_scan_timer = ttk.Label(self.frame_scan, text="", font=("Segoe UI", 8, "italic"), foreground="gray")
-        self.label_scan_timer.pack(pady=(0, 3), anchor="w")
-
-        # --- Remuxing Frame ---
-        self.frame_progress = ttk.LabelFrame(self.remuxer_tab, text="Step 2: Processing Files", padding=(15, 8))
-        # Don't pack initially - will be shown after scan is complete
-
-        # --- Current Activity Section ---
-        frame_current = ttk.LabelFrame(self.frame_progress, text="Current Activity", padding=(10, 5))
-        frame_current.pack(padx=5, pady=(0, 10), fill="x")
-
-        # Current file information in dedicated section
-        self.label_current_file = ttk.Label(frame_current, text="Current file: None", font=("Segoe UI", 9, "bold"))
-        self.label_current_file.pack(anchor="w", pady=2)
-
-        # Overall progress
-        self.label_total_progress = ttk.Label(self.frame_progress, text="Total Progress: 0/0")
-        self.label_total_progress.pack(pady=(0, 3), anchor="w")
-        self.progress_bar_total = ttk.Progressbar(self.frame_progress, orient="horizontal", mode="determinate")
-        self.progress_bar_total.pack(fill="x", pady=3)
-
-        # Current file information moved to status area
-
-        self.label_status = ttk.Label(self.frame_progress, text="Ready")
-        self.label_status.pack(pady=5)
-
-        # Parallel processing status (for future use)
-        self.parallel_status_label = ttk.Label(self.frame_progress, text="")
-        self.parallel_status_label.pack(pady=(3, 0))
-
-        # Control buttons frame within Step 2
-        frame_step2_buttons = ttk.Frame(self.frame_progress)
-        frame_step2_buttons.pack(pady=(10, 0))
-
-        # Create control buttons in Step 2 frame
-        self.btn_pause = ttk.Button(frame_step2_buttons, text="Pause", command=self.toggle_pause, state=self.UI_STATE_DISABLED)
-        self.btn_skip = ttk.Button(frame_step2_buttons, text="Skip Current", command=self.skip_current_file, state=self.UI_STATE_DISABLED)
-        self.btn_cancel = ttk.Button(frame_step2_buttons, text="Cancel", command=self.cancel_processing, state=self.UI_STATE_DISABLED)
-        self.btn_start_remux = ttk.Button(frame_step2_buttons, text="Start Remux", command=self.start_remux_thread, state=self.UI_STATE_DISABLED)
-
-        # Pack control buttons in Step 2 frame (Start Remux on the left)
-        # Don't pack buttons initially - they will be packed after scan is complete
-
-        # --- Control Buttons Frame ---
-        frame_buttons = ttk.Frame(self.remuxer_tab)
-        frame_buttons.pack(pady=10)
-        self.btn_run = ttk.Button(frame_buttons, text="Scan Files", command=self.handle_run_click, state=self.UI_STATE_DISABLED)
-        self.btn_run.pack(side="left", padx=5)
-
-        # Auto-start remux button on the right
-        self.auto_start_checkbox = ttk.Checkbutton(frame_buttons, text="Auto-start Remux", variable=self.auto_start_remux)
-        self.auto_start_checkbox.pack(side="right", padx=15)
-
-        # Start Remux button will be created in Step 2 frame after scan
-
-        # --- Control Buttons in Step 2 Frame (hidden initially) ---
-        # These will be created after frame_step2_buttons is created
-
-        # Log output moved to its own tab
-
-    def create_settings_widgets(self):
-        # --- Output Format ---
-        frame_output_format = ttk.LabelFrame(self.settings_tab, text="Output Format", padding=(10, 5))
-        frame_output_format.pack(padx=10, pady=5, fill="x")
-        format_frame = ttk.Frame(frame_output_format)
-        format_frame.pack(fill="x")
-        ttk.Label(format_frame, text="Output format:").pack(side="left")
-        format_combo = ttk.Combobox(format_frame, textvariable=self.output_format_var, state="readonly", width=8)
-        format_combo["values"] = self.supported_formats['output']
-        format_combo.pack(side="left", padx=(5, 0))
-        ttk.Button(format_frame, text="?", width=2, command=self.show_output_format_info).pack(side="left", padx=(5, 0))
-
-        # --- File Management ---
-        frame_file_options = ttk.LabelFrame(self.settings_tab, text="Original File Management", padding=(10, 5))
-        frame_file_options.pack(padx=10, pady=5, fill="x")
-
-        file_options_frame = ttk.Frame(frame_file_options)
-        file_options_frame.pack(fill="x")
-        ttk.Radiobutton(file_options_frame, text="Move original to subfolder (default)", variable=self.file_action_var, value=self.FILE_ACTION_MOVE).pack(anchor="w")
-        ttk.Radiobutton(file_options_frame, text="Keep original file in place", variable=self.file_action_var, value=self.FILE_ACTION_KEEP).pack(anchor="w")
-
-        delete_frame = ttk.Frame(frame_file_options)
-        delete_frame.pack(anchor="w")
-        ttk.Radiobutton(delete_frame, text="Delete original file", variable=self.file_action_var, value=self.FILE_ACTION_DELETE).pack(side="left")
-        ttk.Label(delete_frame, text="(Not recommended)", foreground="red", font=("Segoe UI", 8)).pack(side="left", padx=(5, 0))
-        ttk.Button(delete_frame, text="?", width=2, command=self.show_file_management_info).pack(side="left", padx=(5, 0))
-
-        # --- Processing Options ---
-        frame_processing = ttk.LabelFrame(self.settings_tab, text="Processing Options", padding=(10, 5))
-        frame_processing.pack(padx=10, pady=5, fill="x")
-        
-        # Audio options container (always packed, but contents change visibility)
-        audio_container = ttk.Frame(frame_processing)
-        audio_container.pack(fill="x", pady=2)
-        
-        audio_frame = ttk.Frame(audio_container)
-        audio_frame.pack(fill="x")
-        self.audio_checkbox = ttk.Checkbutton(audio_frame, text="Include Audio Streams", variable=self.include_audio)
-        self.audio_checkbox.pack(side="left")
-        ttk.Button(audio_frame, text="?", width=2, command=self.show_audio_info).pack(side="left", padx=(5, 0))
-        
-        # Audio options are now handled automatically - all audio tracks are mapped by default
-        # when audio is included, making it simpler for users
-        
-        # Other processing options
-        timestamp_frame = ttk.Frame(frame_processing)
-        timestamp_frame.pack(fill="x")
-        ttk.Checkbutton(timestamp_frame, text="Preserve original file timestamps", variable=self.preserve_timestamps_var).pack(side="left")
-        ttk.Button(timestamp_frame, text="?", width=2, command=self.show_timestamp_info).pack(side="left", padx=(5, 0))
-
-        overwrite_frame = ttk.Frame(frame_processing)
-        overwrite_frame.pack(fill="x")
-        ttk.Checkbutton(overwrite_frame, text="Overwrite existing output files", variable=self.overwrite_existing_var).pack(side="left")
-        ttk.Button(overwrite_frame, text="?", width=2, command=self.show_overwrite_info).pack(side="left", padx=(5, 0))
-
-        # --- Advanced Processing Options ---
-        frame_advanced_options = ttk.LabelFrame(self.settings_tab, text="Advanced Processing Options", padding=(10, 5))
-        frame_advanced_options.pack(padx=10, pady=5, fill="x")
-
-        # File validation option
-        validate_frame = ttk.Frame(frame_advanced_options)
-        validate_frame.pack(fill="x")
-        ttk.Checkbutton(validate_frame, text="Validate files before processing", variable=self.validate_files_var).pack(side="left")
-        ttk.Button(validate_frame, text="?", width=2, command=self.show_validation_info).pack(side="left", padx=(5, 0))
-
-        # Command preview option
-        preview_frame = ttk.Frame(frame_advanced_options)
-        preview_frame.pack(fill="x")
-        ttk.Checkbutton(preview_frame, text="Show command preview before remuxing", variable=self.preview_commands_var).pack(side="left")
-        ttk.Button(preview_frame, text="?", width=2, command=self.show_preview_info).pack(side="left", padx=(5, 0))
-
-
-        # --- Video Timescale (VFR fix) ---
-        self.fps_frame = ttk.LabelFrame(self.settings_tab, text="Video Timescale (VFR Fix)", padding=(10, 5))
-        self.fps_frame.pack(padx=10, pady=5, fill="x")
-        fps_header_frame = ttk.Frame(self.fps_frame)
-        fps_header_frame.pack(anchor="w")
-        ttk.Checkbutton(fps_header_frame, text="Set video timescale", variable=self.use_timescale_option, command=self.toggle_timescale_selector).pack(side="left")
-        ttk.Button(fps_header_frame, text="?", width=2, command=self.show_timescale_info).pack(side="left", padx=(5, 0))
-        
-        self.timescale_options_container = ttk.Frame(self.fps_frame)
-        self.timescale_is_source.trace_add("write", self.on_timescale_option_change)
-        ttk.Radiobutton(self.timescale_options_container, text="Use original video's frame rate (scanned)", variable=self.timescale_is_source, value=True).pack(anchor="w", pady=2)
-        
-        preset_frame = ttk.Frame(self.timescale_options_container)
-        preset_frame.pack(fill="x", padx=20)
-        ttk.Radiobutton(preset_frame, text="Force preset timescale:", variable=self.timescale_is_source, value=False).pack(side="left")
-        self.timescale_combobox = ttk.Combobox(preset_frame, textvariable=self.timescale_preset_var, state=self.UI_STATE_DISABLED, width=7)
-        self.timescale_combobox["values"] = ("23.976", "24", "25", "29.97", "30", "50", "59.94", "60", "90", "120", "144", "Custom")
-        self.timescale_combobox.set("24")
-        self.timescale_combobox.pack(side="left", padx=(5, 10))
-        self.timescale_combobox.bind("<<ComboboxSelected>>", self.check_custom_timescale)
-        self.custom_timescale_entry = ttk.Entry(preset_frame, textvariable=self.timescale_custom_var, width=7, state=self.UI_STATE_DISABLED)
-        self.custom_timescale_entry.pack(side="left", padx=(5, 0))
-
-        # Settings management buttons after VFR section
-        settings_buttons_frame = ttk.Frame(self.settings_tab)
-        settings_buttons_frame.pack(fill="x", pady=(10, 0))
-
-        # Center the button
-        settings_buttons_frame.grid_columnconfigure(0, weight=1)
-        settings_buttons_frame.grid_columnconfigure(2, weight=1)
-
-        ttk.Button(settings_buttons_frame, text="Restore Defaults", command=self.restore_defaults).grid(row=0, column=1)
-
-
-    def create_logs_widgets(self):
-        """Create the logs tab with log output display."""
-        # --- Log Output Frame ---
-        self.log_frame = ttk.LabelFrame(self.logs_tab, text="Log Output", padding=(15, 8))
-        self.log_frame.pack(padx=10, pady=5, fill="both", expand=True)
-
-        # Button frame for log controls
-        log_button_frame = ttk.Frame(self.log_frame)
-        log_button_frame.pack(fill="x", pady=(0, 8))
-        ttk.Button(log_button_frame, text="Copy Log", command=self.copy_log_to_clipboard).pack(side="right")
-        ttk.Button(log_button_frame, text="Clear Log", command=self.clear_log).pack(side="right", padx=(10, 0))
-
-        self.log_text = tk.Text(self.log_frame, height=self.LOG_TEXT_HEIGHT, wrap="word", state="disabled", bg="black", fg="white", font=("Courier New", 9))
-        self.log_text.pack(side="left", fill="both", expand=True)
-        scrollbar = ttk.Scrollbar(self.log_frame, command=self.log_text.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.log_text["yscrollcommand"] = scrollbar.set
-
-    def clear_log(self):
-        """Clear the log output."""
-        self.log_text.config(state="normal")
-        self.log_text.delete(1.0, "end")
-        self.log_text.config(state="disabled")
-
-    # =============================================================================
-    # FFMPEG COMMAND BUILDING
-    # =============================================================================
-    # Generate FFmpeg commands for video remuxing with proper parameters
-    def build_ffmpeg_command(self, video_file_path, settings):
-        """Build FFmpeg command for remuxing a video file."""
-        file_name = os.path.basename(video_file_path)
-        file_name_no_ext = os.path.splitext(file_name)[0]
-        output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
-        output_file_path = os.path.join(output_dir_final, file_name_no_ext + settings["output_format"])
-
-        command = [self.ffmpeg_path, "-y", "-i", video_file_path, "-c:v", "copy"]
-
-        # Handle audio mapping
-        if settings["include_audio"]:
-            # Map all audio streams (simplified behavior)
-            command.extend(["-map", "0:v", "-map", "0:a", "-c:a", "copy"])
-        else:
-            command.extend(["-an"])
-
-        # Handle timescale options
-        if settings["use_timescale"]:
-            timescale = None
-            if settings["timescale_is_source"]:
-                scan_result = settings["scan_results"].get(video_file_path, {})
-                timescale = scan_result.get('fps')
-                if not timescale:
-                    self.process_queue.put(("LOG", f"Warning: No FPS found for {file_name}, timescale option skipped."))
-            else:  # Use preset
-                preset = settings["timescale_preset"]
-                timescale = settings["timescale_custom"] if preset == "Custom" else preset
-
-            if timescale:
-                try:
-                    float(timescale)
-                    command.extend(["-video_track_timescale", str(timescale)])
-                except ValueError:
-                    self.process_queue.put(("LOG", f"Warning: Invalid timescale '{timescale}', skipping option."))
-
-        command.append(output_file_path)
-
-        return command, output_file_path
-
-    # =============================================================================
-    # FILE PROCESSING METHODS
-    # =============================================================================
-    # Execute FFmpeg processes and handle file operations during remuxing
-    def execute_ffmpeg_process(self, command, output_file_path, file_name, duration, settings):
-        """Execute FFmpeg process with real-time output reading to prevent freezing."""
-        try:
-            self.process_queue.put(("LOG", f""))
-            self.process_queue.put(("LOG", f"{'='*60}"))
-            self.process_queue.put(("LOG", f"[PROCESSING] {file_name}"))
-            self.process_queue.put(("LOG", f"{'='*60}"))
-
-            # Run the command with real-time output reading
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Combine stdout and stderr
-                universal_newlines=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            )
-
-            # Read output line by line to prevent freezing
-            while True:
-                if self.cancel_event.is_set():
-                    process.terminate()
-                    try:
-                        if os.path.exists(output_file_path):
-                            os.remove(output_file_path)
-                    except Exception:
-                        pass
-                    return "cancelled"
-
-                if self.skip_event.is_set():
-                    self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
-                    process.terminate()
-                    try:
-                        if os.path.exists(output_file_path):
-                            os.remove(output_file_path)
-                    except Exception:
-                        pass
-
-                    # Skip file without moving original file to Remuxed folder
-                    self.process_queue.put(("LOG", f"   [FILE] Original file left in place (skipped)"))
-                    self.process_queue.put(("LOG", f"{'='*60}"))
-                    self.process_queue.put(("LOG", f""))
-                    return "skipped"
-
-                # Check for pause event - this makes pause responsive during file processing
-                if not self.pause_event.is_set():
-                    # Pause requested - wait for resume or other events
-                    while not self.pause_event.is_set() and not self.cancel_event.is_set() and not self.skip_event.is_set():
-                        time.sleep(0.1)  # Small delay to prevent busy waiting
-
-                    # If cancelled or skipped while paused, handle accordingly
-                    if self.cancel_event.is_set():
-                        process.terminate()
-                        try:
-                            if os.path.exists(output_file_path):
-                                os.remove(output_file_path)
-                        except Exception:
-                            pass
-                        return "cancelled"
-
-                    if self.skip_event.is_set():
-                        self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
-                        process.terminate()
-                        try:
-                            if os.path.exists(output_file_path):
-                                os.remove(output_file_path)
-                        except Exception:
-                            pass
-    
-                        # Skip file without moving original file to Remuxed folder
-                        self.process_queue.put(("LOG", f"   [FILE] Original file left in place (skipped)"))
-                        self.process_queue.put(("LOG", f"{'='*60}"))
-                        self.process_queue.put(("LOG", f""))
-                        return "skipped"
-
-                    # If we get here, pause was lifted, continue processing
-                    continue
-
-                # Read output line by line to prevent buffer overflow and freezing
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-
-                if output:
-                    # Log FFmpeg output with detailed information but less frequently
-                    stripped_output = output.strip()
-                    if stripped_output:
-                        # Log detailed progress information but reduce frequency
-                        if any(keyword in stripped_output for keyword in ['time=', 'frame=', 'size=', 'fps=', 'bitrate=']):
-                            # Use a counter to reduce logging frequency (log every 3rd message)
-                            if not hasattr(self, 'log_counter'):
-                                self.log_counter = 0
-                            self.log_counter += 1
-
-                            if self.log_counter % 3 == 0:  # Log every 3rd progress message
-                                self.process_queue.put(("LOG", f"   {stripped_output}"))
-
-            # Wait for process to complete
-            process.wait()
-
-            if self.cancel_event.is_set():
-                try:
-                    if os.path.exists(output_file_path):
-                        os.remove(output_file_path)
-                except Exception:
-                    pass
-                return "cancelled"
-
-            if process.returncode == 0:
-                self.process_queue.put(("LOG", f""))
-                self.process_queue.put(("LOG", f"   [SUCCESS] Remuxed successfully"))
-
-                # Preserve original file timestamps if option is enabled
-                if settings.get("preserve_timestamps", False):
-                    # Derive video_file_path from output_file_path and file_name
-                    video_file_path = os.path.join(os.path.dirname(output_file_path), file_name)
-                    if self.preserve_file_timestamps(video_file_path, output_file_path):
-                        self.process_queue.put(("LOG", f"   [TIMESTAMP] Timestamps preserved"))
-                    else:
-                        self.process_queue.put(("LOG", f"   [WARNING] Failed to preserve timestamps"))
-
-                # Handle original file
-                self.handle_original_file(file_name, output_file_path, settings)
-                self.process_queue.put(("LOG", f"{'='*60}"))
-                self.process_queue.put(("LOG", f""))
-                return "completed"
-            else:
-                self.process_queue.put(("LOG", f"[ERROR] Failed remuxing {file_name}. Return code: {process.returncode}"))
-                self.process_queue.put(("LOG", f"{'='*60}"))
-                self.process_queue.put(("LOG", f""))
-                return "error"
-
-        except Exception as e:
-            self.process_queue.put(("LOG", f"[CRITICAL] ERROR on {file_name}: {e}"))
-            self.process_queue.put(("LOG", f"{'='*60}"))
-            self.process_queue.put(("LOG", f""))
-            return "error"
-
-    def preserve_file_timestamps(self, source_file, target_file):
-        """Copy timestamps from source file to target file."""
-        try:
-            # Get timestamps from source file
-            stat_info = os.stat(source_file)
-            access_time = stat_info.st_atime
-            modify_time = stat_info.st_mtime
-
-            # Apply timestamps to target file
-            os.utime(target_file, (access_time, modify_time))
-            return True
-        except Exception as e:
-            self.process_queue.put(("LOG", f"Warning: Failed to preserve timestamps: {str(e)}"))
-            return False
-
-    def handle_original_file(self, file_name, output_file_path, settings):
-        """Handle the original file based on the file action setting."""
-        action = settings["file_action"]
-        try:
-            if action == self.FILE_ACTION_MOVE:
-                # Move to subfolder - always in source directory, not output directory
-                # Find the source directory by looking through files_to_process
-                source_dir = None
-                for file_path in settings.get("files", []):
-                    if os.path.basename(file_path) == file_name:
-                        source_dir = os.path.dirname(file_path)
-                        break
-
-                if source_dir:
-                    original_ext = os.path.splitext(file_name)[1].upper()[1:]
-                    subfolder = os.path.join(source_dir, "Remuxed")
-                    os.makedirs(subfolder, exist_ok=True)
-                    shutil.move(os.path.join(source_dir, file_name), os.path.join(subfolder, file_name))
-                    self.process_queue.put(("LOG", f"   [FILE] Moved original to {original_ext}s folder"))
-                else:
-                    self.process_queue.put(("LOG", f"   [WARNING] Could not find source directory for {file_name}"))
-            elif action == self.FILE_ACTION_DELETE:
-                # Find the source directory for deletion
-                source_dir = None
-                for file_path in settings.get("files", []):
-                    if os.path.basename(file_path) == file_name:
-                        source_dir = os.path.dirname(file_path)
-                        break
-
-                if source_dir:
-                    os.remove(os.path.join(source_dir, file_name))
-                    self.process_queue.put(("LOG", f"   [DELETE] Deleted original file"))
-                else:
-                    self.process_queue.put(("LOG", f"   [WARNING] Could not find source directory for {file_name}"))
-        except Exception as e:
-            self.process_queue.put(("LOG", f"   [WARNING] Failed to handle original file: {str(e)}"))
-
-
-    def get_audio_track_info(self, file_path):
-        """Get information about audio tracks in the file."""
-        try:
-            command = [self.ffprobe_path, "-v", "error", "-select_streams", "a",
-                       "-show_entries", "stream=index,codec_name,channels,language",
-                       "-of", "csv=p=0", file_path]
-
-            result = subprocess.run(command, capture_output=True, text=True, timeout=self.FFPROBE_TIMEOUT,
-                                   creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-
-            if result.returncode == 0:
-                tracks = []
-                for line in result.stdout.strip().split('\n'):
-                    if line:
-                        parts = line.split(',')
-                        if len(parts) >= 3:
-                            index, codec, channels = parts[0], parts[1], parts[2]
-                            language = parts[3] if len(parts) > 3 and parts[3] else "und"
-                            tracks.append({
-                                'index': int(index),
-                                'codec': codec,
-                                'channels': channels,
-                                'language': language
-                            })
-                return tracks
-            else:
-                self.process_queue.put(("LOG", f"Warning: ffprobe failed for audio tracks in {os.path.basename(file_path)}"))
-                return []
-        except subprocess.TimeoutExpired:
-            self.process_queue.put(("LOG", f"Warning: Timeout getting audio tracks for {os.path.basename(file_path)}"))
-            return []
-        except Exception as e:
-            self.process_queue.put(("LOG", f"Warning: Error getting audio tracks for {os.path.basename(file_path)}: {str(e)}"))
-            return []
-
-    # =============================================================================
     # UTILITY METHODS
     # =============================================================================
-    # Provide helper functions for various operations like tool detection,
-    # file validation, and resource path handling
-
-    # ---------- Utility & Process Functions ----------
-
     def find_ffmpeg_path(self):
         """Find ffmpeg executable by checking current directory first, then system PATH."""
         # First, try to find ffmpeg in the current directory (same as application)
@@ -963,43 +924,6 @@ class RemuxApp(tk.Tk):
 
     def show_missing_tools_dialog(self):
         """Show dialog when required tools (ffmpeg/ffprobe) are missing."""
-        # Create custom dialog
-        dialog = tk.Toplevel(self)
-        dialog.title("Missing Required Tools")
-        dialog.geometry("450x250")
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-
-        # Set custom window icon for dialog
-        try:
-            icon_path = self.get_resource_path("ICOtrans.ico")
-            try:
-                dialog.iconbitmap(icon_path)
-            except Exception:
-                try:
-                    from PIL import Image, ImageTk
-                    icon = Image.open(icon_path)
-                    icon = ImageTk.PhotoImage(icon)
-                    dialog.iconphoto(True, icon)
-                except Exception:
-                    try:
-                        icon = tk.PhotoImage(file=icon_path)
-                        dialog.iconphoto(True, icon)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # Center the dialog
-        dialog.geometry("+%d+%d" % (self.winfo_rootx() + self.winfo_width()//2 - 225,
-                                    self.winfo_rooty() + self.winfo_height()//2 - 125))
-
-        # Main frame
-        main_frame = ttk.Frame(dialog, padding=20)
-        main_frame.pack(fill="both", expand=True)
-
-        # Missing tools message
         missing_tools = []
         if not self.ffmpeg_path:
             missing_tools.append("ffmpeg")
@@ -1008,150 +932,51 @@ class RemuxApp(tk.Tk):
 
         tools_text = " and ".join(missing_tools)
 
-        message_label = ttk.Label(main_frame,
-                                 text=f"The following required tools are not found:\n\n{tools_text}\n\n"
-                                      "Please ensure they are either:\n"
-                                      "• In the same directory as this application, or\n"
-                                      "• Available in your system PATH\n\n"
-                                      "After adding the files, click 'Retry' to continue.",
-                                 justify="left", wraplength=400)
-        message_label.pack(pady=(0, 20))
+        # print(f"[DEBUG] Creating missing tools dialog for: {tools_text}")
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Missing Required Tools")
+        msg.setIcon(QMessageBox.Warning)
+        msg.setText(f"The following required tools are not found:\n\n{tools_text}\n\n"
+                   "Please ensure they are either:\n"
+                   "• In the same directory as this application, or\n"
+                   "• Available in your system PATH\n\n"
+                   "After adding the files, click 'Retry' to continue.")
 
-        def retry_check():
-            """Re-check for the missing tools."""
+        retry_btn = msg.addButton("Retry", QMessageBox.ActionRole)
+        exit_btn = msg.addButton("Exit", QMessageBox.RejectRole)
+
+        # print(f"[DEBUG] Showing missing tools dialog...")
+        msg.exec_()
+        # print(f"[DEBUG] Missing tools dialog closed, user clicked: {msg.clickedButton().text()}")
+
+        if msg.clickedButton() == retry_btn:
+            # print("[DEBUG] User clicked Retry, re-checking tool paths...")
             self.ffmpeg_path = self.find_ffmpeg_path()
             self.ffprobe_path = self.find_ffprobe_path()
 
+            # print(f"[DEBUG] After retry - FFmpeg path: {self.ffmpeg_path}")
+            # print(f"[DEBUG] After retry - FFprobe path: {self.ffprobe_path}")
+
             if self.ffmpeg_path and self.ffprobe_path:
-                # Both tools found, close dialog and continue initialization
-                dialog.destroy()
-                self.continue_initialization()
+                # Both tools found, continue initialization
+                # print("[DEBUG] Tools found after retry, continuing initialization...")
+                pass
             else:
                 # Still missing, show error message
-                messagebox.showerror("Still Missing",
-                                   "The required tools are still not found.\n\n"
-                                   "Please ensure ffmpeg and ffprobe are properly installed\n"
-                                   "and accessible before retrying.")
-
-        def exit_application():
-            """Exit the application."""
-            dialog.destroy()
-            self.destroy()
-
-        # Button container frame
-        button_container = ttk.Frame(main_frame)
-        button_container.pack(pady=(20, 0))
-
-        # Center the buttons horizontally
-        button_container.grid_columnconfigure(0, weight=1)
-        button_container.grid_columnconfigure(2, weight=1)
-
-        # Retry button
-        retry_btn = ttk.Button(button_container, text="Retry", command=retry_check)
-        retry_btn.grid(row=0, column=1, padx=(0, 10))
-
-        # Exit button
-        exit_btn = ttk.Button(button_container, text="Exit", command=exit_application)
-        exit_btn.grid(row=0, column=2)
-
-        # Set focus on retry button by default
-        retry_btn.focus()
-
-        # Handle Enter key
-        dialog.bind('<Return>', lambda e: retry_check())
-        dialog.bind('<Escape>', lambda e: exit_application())
-
-        # Handle window close button (X)
-        dialog.protocol("WM_DELETE_WINDOW", exit_application)
-
-    def continue_initialization(self):
-        """Continue with the normal application initialization after tools are found."""
-        # This method will be called after successful retry to continue __init__
-        # Re-initialize the paths (they should now be found)
-        self.ffmpeg_path = self.find_ffmpeg_path()
-        self.ffprobe_path = self.find_ffprobe_path()
-
-        # Continue with the rest of the initialization that was skipped
-        self.output_directory = ""
-        self.files_to_process = []
-        self.scan_results = {}
-        self.is_scanned = False
-        self.process_queue = queue.Queue()
-        self.current_process = None
-        self.selected_output_directory = ""  # Track user-selected output directory
-
-        # --- Threading locks for safety ---
-        self.state_lock = threading.Lock()
-        self.process_lock = threading.Lock()
-
-        # --- Threading Events ---
-        self.pause_event = threading.Event()
-        self.pause_event.set()  # Set by default (not paused)
-        self.cancel_event = threading.Event()
-        self.skip_event = threading.Event()
-
-        # --- Statistics ---
-        self.processing_start_time = None  # Track when processing starts for elapsed time
-        self.scan_start_time = None  # Track when scanning starts for elapsed time
-
-        # --- Supported formats ---
-        self.supported_formats = {
-            'input': ['.mkv'],
-            'output': ['.mp4', '.mov']
-        }
-
-        # --- Settings Variables ---
-        self.use_timescale_option = tk.BooleanVar(value=True)
-        self.timescale_is_source = tk.BooleanVar(value=True)
-        self.timescale_preset_var = tk.StringVar(value=self.DEFAULT_TIMESCALE)
-        self.timescale_custom_var = tk.StringVar(value="")
-        self.auto_start_remux = tk.BooleanVar(value=True)
-        self.include_audio = tk.BooleanVar(value=True)
-        self.file_action_var = tk.StringVar(value=self.FILE_ACTION_MOVE)
-        self.output_format_var = tk.StringVar(value=".mp4")
-        self.validate_files_var = tk.BooleanVar(value=True)
-        self.preserve_timestamps_var = tk.BooleanVar(value=True)
-        self.preview_commands_var = tk.BooleanVar(value=False)
-        self.overwrite_existing_var = tk.BooleanVar(value=False)
-
-        # --- Settings State ---
-        self.settings_disabled = False
-
-        # Create widgets and continue with normal initialization
-        self.create_widgets()
-        self.after(self.PROGRESS_UPDATE_INTERVAL, self.check_queue)
-
-        # Remove focus from all existing widgets
-        self.remove_focus_from_all_widgets()
-
-        # Specifically configure notebook tabs
-        self.configure_notebook_tabs()
-
-        # Apply tab styling after a short delay to ensure tabs are created
-        self.after(100, self.apply_tab_styling)
-
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        # Load saved settings FIRST
-        self.load_settings()
-
-        # Add auto-save traces to all settings variables AFTER loading
-        self.auto_start_remux.trace_add("write", lambda *args: self.auto_save_settings())
-        self.include_audio.trace_add("write", lambda *args: self.auto_save_settings())
-        self.file_action_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.output_format_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.validate_files_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.preserve_timestamps_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.preview_commands_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.overwrite_existing_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.use_timescale_option.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_is_source.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_preset_var.trace_add("write", lambda *args: self.auto_save_settings())
-        self.timescale_custom_var.trace_add("write", lambda *args: self.auto_save_settings())
-
-        # Ensure timescale options are properly initialized on startup
-        if self.use_timescale_option.get():
-            self.toggle_timescale_selector()
+                # print("[DEBUG] Tools still missing, showing error dialog...")
+                error_msg = QMessageBox(self)
+                error_msg.setWindowTitle("Still Missing")
+                error_msg.setIcon(QMessageBox.Critical)
+                error_msg.setText("The required tools are still not found.\n\n"
+                                "Please ensure ffmpeg and ffprobe are properly installed\n"
+                                "and accessible before retrying.")
+                # print(f"[DEBUG] Showing error dialog...")
+                error_msg.exec_()
+                # print(f"[DEBUG] Error dialog closed")
+                sys.exit(1)
+        else:
+            # print("[DEBUG] User clicked Exit, terminating application...")
+            sys.exit(0)
 
     def get_resource_path(self, relative_path):
         """Get the absolute path to a resource file, handling PyInstaller bundling."""
@@ -1173,123 +998,34 @@ class RemuxApp(tk.Tk):
         try:
             icon_path = self.get_resource_path(icon_filename)
             if not os.path.exists(icon_path):
-                self._log_icon_warning(f"Icon file not found: {icon_path}")
+                print(f"Icon file not found: {icon_path}")
                 return
 
-            # Try platform-optimized methods first
-            if self._set_icon_windows(icon_path):
-                return
-            if self._set_icon_pil(icon_path):
-                return
-            if self._set_icon_tkinter(icon_path):
-                return
-
-            self._log_icon_warning(f"Failed to set icon: {icon_path}")
-
-        except Exception as e:
-            self._log_icon_warning(f"Error setting icon: {e}")
-
-    def _set_icon_windows(self, icon_path):
-        """Try Windows-specific iconbitmap method."""
-        if sys.platform == "win32":
-            try:
-                self.iconbitmap(icon_path)
-                return True
-            except (tk.TclError, OSError):
-                pass
-        return False
-
-    def _set_icon_pil(self, icon_path):
-        """Try PIL-based icon setting with size optimization."""
-        try:
-            from PIL import Image, ImageTk
-            with Image.open(icon_path) as img:
-                # Optimize icon size for better compatibility
-                if max(img.size) > 256:
-                    img = img.resize((256, 256), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
-            self.iconphoto(True, photo)
-            return True
-        except Exception:
-            return False
-
-    def _set_icon_tkinter(self, icon_path):
-        """Try basic Tkinter PhotoImage method."""
-        try:
-            photo = tk.PhotoImage(file=icon_path)
-            self.iconphoto(True, photo)
-            return True
-        except tk.TclError:
-            return False
-
-    def _log_icon_warning(self, message):
-        """Log icon-related warnings using proper logging."""
-        import logging
-        logging.warning(message)
-
-    def validate_video_file(self, file_path):
-        """Validate that a file is a readable video file using ffprobe."""
-        try:
-            command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
-                       "-show_entries", "stream=codec_name", "-of",
-                       "default=noprint_wrappers=1:nokey=1", file_path]
-
-            result = subprocess.run(command, capture_output=True, text=True, timeout=self.FFPROBE_TIMEOUT,
-                                   creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-            return result.returncode == 0 and result.stdout.strip()
-        except subprocess.TimeoutExpired:
-            self.process_queue.put(("LOG", f"Warning: Timeout validating {os.path.basename(file_path)}"))
-            return False
-        except Exception as e:
-            self.process_queue.put(("LOG", f"Warning: Error validating {os.path.basename(file_path)}: {str(e)}"))
-            return False
-
-
-    def get_video_duration(self, file_path):
-        """Get video duration in seconds."""
-        try:
-            command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
-                       "-of", "default=noprint_wrappers=1:nokey=1", file_path]
-
-            result = subprocess.run(command, capture_output=True, text=True, timeout=self.FFPROBE_TIMEOUT,
-                                   creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-            if result.returncode == 0:
-                return float(result.stdout.strip())
+            # Try to load the icon
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
             else:
-                self.process_queue.put(("LOG", f"Warning: ffprobe failed to get duration for {os.path.basename(file_path)}"))
-                return 0
-        except subprocess.TimeoutExpired:
-            self.process_queue.put(("LOG", f"Warning: Timeout getting duration for {os.path.basename(file_path)}"))
-            return 0
-        except ValueError:
-            self.process_queue.put(("LOG", f"Warning: Invalid duration format for {os.path.basename(file_path)}"))
-            return 0
+                print(f"Failed to load icon: {icon_path}")
+
         except Exception as e:
-            self.process_queue.put(("LOG", f"Warning: Error getting duration for {os.path.basename(file_path)}: {str(e)}"))
-            return 0
+            print(f"Error setting icon: {e}")
 
     # =============================================================================
     # QUEUE PROCESSING
     # =============================================================================
-    # Handle message processing from worker threads and update UI components
-    # with progress information, status updates, and completion notifications
-
     def check_queue(self):
-        """Process messages from the worker threads and update the UI accordingly.
-
-        Limits processing to prevent UI blocking by processing only a few messages
-        per iteration, then scheduling the next check.
-        """
+        """Process messages from the worker threads and update the UI accordingly."""
         try:
             # Process up to MAX_QUEUE_MESSAGES_PER_UPDATE messages per iteration to prevent UI blocking
-            for _ in range(self.MAX_QUEUE_MESSAGES_PER_UPDATE):
+            for _ in range(MAX_QUEUE_MESSAGES_PER_UPDATE):
                 message = self.process_queue.get_nowait()
                 msg_type, data = message
 
                 # --- Scan Messages ---
                 if msg_type == "SCAN_PROGRESS":
-                    self.progress_bar_scan["value"] = data['percent']
-                    self.label_scan_progress.config(text=f"Scanning: {data['current']}/{data['total']}")
+                    self.progress_bar_scan.setValue(int(data['percent']))
+                    self.label_scan_progress.setText(f"Scanning: {data['current']}/{data['total']}")
 
                     # Update scan timer if scanning is in progress
                     if self.scan_start_time:
@@ -1300,12 +1036,18 @@ class RemuxApp(tk.Tk):
                             timer_text = f"Elapsed: {hours:02d}:{minutes:02d}:{seconds:02d}"
                         else:
                             timer_text = f"Elapsed: {minutes:02d}:{seconds:02d}"
-                        self.label_scan_timer.config(text=timer_text)
+                        self.label_scan_timer.setText(timer_text)
+
                 elif msg_type == "SCAN_COMPLETE":
                     self.scan_results = data['results']
                     self.is_scanned = True
                     valid_files = sum(1 for v in data['results'].values() if v.get('valid', True))
                     total_files = len(data['results'])
+
+                    # DEBUG: Log a simple confirmation that the scan is complete.
+                    # The detailed per-file logs have already been sent from the worker.
+                    if self.debug_mode:
+                        self.log_text.append(f"[DEBUG] SCAN_COMPLETE received")
 
                     # Calculate final scan elapsed time
                     final_elapsed_time = None
@@ -1321,65 +1063,64 @@ class RemuxApp(tk.Tk):
 
                     # Update Step 1 with scan results and hide progress bar
                     if valid_files == total_files:
-                        self.label_scan_progress.config(text=f"✓ {valid_files}/{total_files} files ready to remux")
+                        self.label_scan_progress.setText(f"✓ {valid_files}/{total_files} files ready to remux")
                     else:
-                        self.label_scan_progress.config(text=f"⚠ {valid_files}/{total_files} files ready to remux")
+                        self.label_scan_progress.setText(f"⚠ {valid_files}/{total_files} files ready to remux")
 
                     # Show final elapsed time under the files ready message
                     if final_elapsed_time:
-                        self.label_scan_timer.config(text=f"Scan completed in {final_elapsed_time}")
+                        self.label_scan_timer.setText(f"Scan completed in {final_elapsed_time}")
 
                     # Hide progress bar but keep the frame visible with results
-                    self.progress_bar_scan.pack_forget()
+                    self.progress_bar_scan.hide()
 
                     # Show Step 2 frame after scan is complete
-                    self.frame_progress.pack(padx=10, pady=5, fill="x")
+                    self.progress_group.show()
 
                     # Update Step 2 frame title to show current step
-                    self.frame_progress.config(text="Step 2: Processing Files")
+                    self.progress_group.setTitle("Step 2: Processing Files")
 
-                    # Control buttons are already packed in Step 2 frame, just enable Start Remux button
-                    # Pause and Skip buttons remain disabled until remux starts
-                    self.btn_cancel.config(state="normal")
-                    self.btn_start_remux.config(state="normal")
-
-                    # Make sure Start Remux button is visible and positioned correctly (leftmost)
-                    # Pack buttons in the correct visual order: Start Remux, Pause, Skip, Cancel
-                    self.btn_start_remux.pack(side="left", padx=5)
-                    self.btn_pause.pack(side="left", padx=5)
-                    self.btn_skip.pack(side="left", padx=5)
-                    self.btn_cancel.pack(side="left", padx=5)
+                    # Control buttons are already created, just enable Start Remux button
+                    self.btn_cancel.setEnabled(True)
+                    self.btn_start_remux.setEnabled(True)
+                    self.btn_start_remux.show()  # Make sure Start Remux button is visible
 
                     # Auto-start remuxing if option was enabled
-                    if self.auto_start_remux.get():
-                        # Start remuxing after 1 second delay (buttons are already positioned correctly)
-                        self.after(1000, lambda: self.start_remux_thread(auto_start=True))
+                    if self.auto_start_remux:
+                        # Start remuxing after 1 second delay
+                        QTimer.singleShot(1000, self.start_remux_thread_auto)
 
-                    # Hide Scan Files button (no Start Remux button in bottom frame anymore)
-                    self.btn_run.pack_forget()
-                    self.log_text.config(state="normal")
-                    self.log_text.insert("end", f"Scan complete. Ready to remux.\n")
-                    self.log_text.config(state="disabled")
+                    # Hide Scan Files button
+                    self.btn_run.hide()
+                    self.log_text.append("Scan complete. Ready to remux.")
 
                     # Re-enable source and output buttons after scan completes
-                    self.btn_browse_folder.config(state="normal")
-                    self.btn_browse_files.config(state="normal")
-                    self.btn_browse_output.config(state="normal")
-                    self.btn_clear_output.config(state="normal")
-                
+                    self.btn_browse_folder.setEnabled(True)
+                    self.btn_browse_files.setEnabled(True)
+                    self.btn_browse_output.setEnabled(True)
+                    self.btn_clear_output.setEnabled(True)
+
                 # --- Remux Messages ---
                 elif msg_type == "LOG":
-                    self.log_text.config(state="normal")
-                    self.log_text.insert("end", data + "\n")
-                    self.log_text.config(state="disabled")
-                    self.log_text.see("end")
+                    # Format log messages with timestamps for better readability
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    formatted_message = f"[{timestamp}] {data}"
+                    self.log_text.append(formatted_message)
+                    # Scroll to bottom
+                    scrollbar = self.log_text.verticalScrollBar()
+                    scrollbar.setValue(scrollbar.maximum())
+
                 elif msg_type == "STATUS":
-                    self.label_status.config(text=data)
+                    self.label_status.setText(data)
+
                 elif msg_type == "PROGRESS":
-                    self.progress_bar_total["value"] = data['total_percent']
-                    self.label_total_progress.config(text=f"Total Progress: {data['current']}/{data['total']}")
+                    self.progress_bar_total.setValue(int(data['total_percent']))
+                    self.label_total_progress.setText(f"Total Progress: {data['current']}/{data['total']}")
+
                 elif msg_type == "PARALLEL_STATUS":
-                    self.parallel_status_label.config(text=data)
+                    self.parallel_status_label.setText(data)
+
                 elif msg_type == "FINISHED":
                     # Calculate elapsed time
                     elapsed_time = None
@@ -1395,99 +1136,78 @@ class RemuxApp(tk.Tk):
                     final_msg = f"Finished! Remuxed: {data['remuxed']}, Skipped: {data['skipped']}"
 
                     # Update Step 2 frame title to show completion
-                    self.frame_progress.config(text="Step 2: Processing Complete")
+                    self.progress_group.setTitle("Step 2: Processing Complete")
 
                     # Update the total progress label to show final count in same style as scan results
                     total_processed = data['remuxed'] + data['skipped']
                     total_files = len(self.files_to_process)
                     if data['remuxed'] == total_files:
-                        self.label_total_progress.config(text=f"✓ {data['remuxed']}/{total_files} files remuxed")
+                        self.label_total_progress.setText(f"✓ {data['remuxed']}/{total_files} files remuxed")
                     else:
-                        self.label_total_progress.config(text=f"✓ {data['remuxed']}/{total_files} files remuxed")
+                        self.label_total_progress.setText(f"✓ {data['remuxed']}/{total_files} files remuxed")
 
                     # Clear current activity labels since processing is complete
-                    self.label_current_file.config(text="Current file: None")
-                    self.label_status.config(text="Complete")
+                    self.label_current_file.setText("Current file: None")
+                    self.label_status.setText("Complete")
 
-                    # Reset button state before showing completion dialog
-                    self.btn_run.config(state=self.UI_STATE_NORMAL, text="Scan Files")
-
-                    # Re-enable source and output buttons after remuxing completes
-                    self.btn_browse_folder.config(state="normal")
-                    self.btn_browse_files.config(state="normal")
-                    self.btn_browse_output.config(state="normal")
-                    self.btn_clear_output.config(state="normal")
-
-                    self.log_text.config(state="normal")
-                    self.log_text.insert("end", f"Remux process completed successfully for all files.\n")
-                    self.log_text.config(state="disabled")
+                    # The UI will be reset after the completion dialog is closed.
+                    self.log_text.append("Remux process completed successfully for all files.")
                     self.show_completion_dialog(final_msg, data, elapsed_time)
 
         except queue.Empty:
             pass
-        self.after(self.PROGRESS_UPDATE_INTERVAL, self.check_queue)
 
     # =============================================================================
     # UI STATE MANAGEMENT
     # =============================================================================
-    # Manage application UI state transitions, button states, and interface updates
-    # during different phases of operation (scanning, processing, idle)
-
     def reset_scan_state(self):
-        """Reset the application to a pre-scan state when new files are selected.
-
-        This method clears scan results and resets all progress indicators
-        to their initial state, preparing the UI for a new scan operation.
-        """
+        """Reset the application to a pre-scan state when new files are selected."""
         self.is_scanned = False
         self.scan_results = {}
         self.scan_start_time = None  # Reset scan timer
 
         # Hide Step 2 frame and show Step 1 frame when resetting scan state
-        try:
-            self.frame_progress.pack_info()
-            self.frame_progress.pack_forget()
-        except:
-            pass  # Frame is not currently packed, nothing to do
+        self.progress_group.hide()
 
         # Show Step 1 frame
-        self.frame_scan.pack(padx=10, pady=(5, 0), fill="x")
+        self.scan_group.show()
 
         # Show Auto-start Remux checkbox again
-        self.auto_start_checkbox.pack(side="right", padx=15)
+        self.auto_start_checkbox.show()
 
         # Disable control buttons when resetting scan state
-        self.btn_pause.config(state=self.UI_STATE_DISABLED)
-        self.btn_skip.config(state=self.UI_STATE_DISABLED)
-        self.btn_cancel.config(state=self.UI_STATE_DISABLED)
+        self.btn_pause.setEnabled(False)
+        self.btn_skip.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
 
         # Restore Scan Files button and hide Start Remux button
-        self.btn_start_remux.pack_forget()
-        self.btn_run.pack(side="left", padx=5)
+        self.btn_start_remux.hide()
+        self.btn_run.show()
+        # Fix z-order issue: ensure button is visible and on top
+        self.btn_run.raise_()
+        self.btn_run.repaint()
+        # Force layout update to ensure button is properly visible
+        self.remuxer_tab.layout().update()
 
-        # Make sure all control buttons are properly unpacked to prevent positioning issues
-        self.btn_pause.pack_forget()
-        self.btn_skip.pack_forget()
-        self.btn_cancel.pack_forget()
-
-        self.btn_run.config(text="Scan Files", state=self.UI_STATE_NORMAL if self.files_to_process else self.UI_STATE_DISABLED)
-        self.progress_bar_scan["value"] = 0
-        self.progress_bar_total["value"] = 0
-        self.label_scan_progress.config(text="Ready to scan.")
-        self.label_total_progress.config(text="Total Progress: 0/0")
-        self.label_current_file.config(text="Current file: None")
+        self.btn_run.setText("Scan Files")
+        self.btn_run.setEnabled(bool(self.files_to_process))
+        self.progress_bar_scan.setValue(0)
+        self.progress_bar_total.setValue(0)
+        self.label_scan_progress.setText("Ready to scan.")
+        self.label_total_progress.setText("Total Progress: 0/0")
+        self.label_current_file.setText("Current file: None")
 
         # Clear timer display
-        self.label_scan_timer.config(text="")
+        self.label_scan_timer.setText("")
 
         # Restore progress bar for next scan
-        self.progress_bar_scan.pack(fill="x", pady=3)
+        self.progress_bar_scan.show()
 
         # Re-enable source and output buttons when resetting scan state
-        self.btn_browse_folder.config(state="normal")
-        self.btn_browse_files.config(state="normal")
-        self.btn_browse_output.config(state="normal")
-        self.btn_clear_output.config(state="normal")
+        self.btn_browse_folder.setEnabled(True)
+        self.btn_browse_files.setEnabled(True)
+        self.btn_browse_output.setEnabled(True)
+        self.btn_clear_output.setEnabled(True)
 
         # Ensure settings are enabled after scan reset
         if not self.settings_disabled:
@@ -1495,12 +1215,12 @@ class RemuxApp(tk.Tk):
 
     def is_remuxer_running(self):
         """Check if the remuxer is currently running (scanning or remuxing)."""
-        return self.btn_run.cget("text") in ["Scanning...", "Processing..."]
+        return self.btn_run.text() in ["Scanning...", "Remuxing..."]
 
     def disable_settings_controls(self):
         """Disable all settings controls when remuxer is running to prevent changes."""
         # Disable notebook tabs to prevent switching
-        self.notebook.tab(self.settings_tab, state="disabled")
+        self.tab_widget.setTabEnabled(1, False)  # Settings tab
 
         # Store current state for restoration
         self.settings_disabled = True
@@ -1508,50 +1228,50 @@ class RemuxApp(tk.Tk):
     def enable_settings_controls(self):
         """Re-enable all settings controls when remuxer stops."""
         # Re-enable notebook tabs
-        self.notebook.tab(self.settings_tab, state="normal")
+        self.tab_widget.setTabEnabled(1, True)  # Settings tab
 
         # Clear the disabled flag
         self.settings_disabled = False
 
     def reset_ui_after_processing(self):
-        """Reset the UI to its initial state after processing is complete.
-
-        This method disables all processing controls, clears the file list,
-        and resets the UI to prepare for a new operation.
-        """
-        self.btn_run.config(state=self.UI_STATE_NORMAL, text="Scan Files")
-        self.btn_pause.config(state=self.UI_STATE_DISABLED, text="Pause")
-        self.btn_skip.config(state=self.UI_STATE_DISABLED)
-        self.btn_cancel.config(state=self.UI_STATE_DISABLED)
-        self.btn_start_remux.config(state=self.UI_STATE_DISABLED, text="Start Remux")
+        """Reset the UI to its initial state after processing is complete."""
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("Scan Files")
+        self.btn_pause.setEnabled(False)
+        self.btn_pause.setText("Pause")
+        self.btn_skip.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self.btn_start_remux.setEnabled(False)
+        self.btn_start_remux.setText("Start Remux")
 
         # Restore Scan Files button and hide Start Remux button
-        self.btn_start_remux.pack_forget()
-        self.btn_run.pack(side="left", padx=5)
-
-        # Make sure all control buttons are properly unpacked to prevent positioning issues
-        self.btn_pause.pack_forget()
-        self.btn_skip.pack_forget()
-        self.btn_cancel.pack_forget()
+        self.btn_start_remux.hide()
+        self.btn_start_remux.setEnabled(False)
+        self.btn_run.show()
+        # Fix z-order issue: ensure button is visible and on top
+        self.btn_run.raise_()
+        self.btn_run.repaint()
+        # Force layout update to ensure button is properly visible
+        self.remuxer_tab.layout().update()
 
         # Show Step 1 frame and hide Step 2 frame
-        self.frame_scan.pack(padx=10, pady=(5, 0), fill="x")
-        self.frame_progress.pack_forget()
+        self.scan_group.show()
+        self.progress_group.hide()
 
         # Show Auto-start Remux checkbox again
-        self.auto_start_checkbox.pack(side="right", padx=15)
+        self.auto_start_checkbox.show()
         self.is_scanned = False
         with self.process_lock:
             self.current_process = None
         self.files_to_process = []
-        self.label_input_path.config(text="No folder or files selected")
-        self.parallel_status_label.config(text="")
-        self.label_status.config(text="Ready")
+        self.label_input_path.setText("No folder or files selected")
+        self.parallel_status_label.setText("")
+        self.label_status.setText("Ready")
 
         # Reset output directory display
         self.output_directory = ""
         self.selected_output_directory = ""
-        self.label_output_path.config(text="Same as source")
+        self.label_output_path.setText("Same as source")
 
         self.reset_scan_state()
         self.enable_settings_controls()
@@ -1559,23 +1279,16 @@ class RemuxApp(tk.Tk):
     # =============================================================================
     # USER ACTION HANDLERS
     # =============================================================================
-    # Handle user interactions with the GUI including file browsing, processing
-    # controls, and application lifecycle management
-
-    # ---------- User Actions ----------
     def browse_input_folder(self):
-        """Open a directory dialog and select all supported video files from the chosen directory.
-
-        This method scans the selected directory for files with supported input formats,
-        counts files by format, and updates the UI to show the selection summary.
-        """
-        directory = filedialog.askdirectory()
+        """Open a directory dialog and select all supported video files from the chosen directory."""
+        directory = QFileDialog.getExistingDirectory(self, "Select Source Directory")
         if directory:
             # Consistent case handling for extensions
             supported_extensions = [ext.lower() for ext in self.supported_formats['input']]
+            all_files = os.listdir(directory)
             self.files_to_process = [
                 os.path.join(directory, f)
-                for f in os.listdir(directory)
+                for f in all_files
                 if any(f.lower().endswith(ext) for ext in supported_extensions)
             ]
             format_counts = {}
@@ -1583,211 +1296,48 @@ class RemuxApp(tk.Tk):
                 ext = os.path.splitext(file)[1].lower()
                 format_counts[ext] = format_counts.get(ext, 0) + 1
 
-            self.label_input_path.config(text=f"{len(self.files_to_process)} files selected")
+            # DEBUG: Add logging to track file selection (only in debug mode)
+            if self.debug_mode:
+                self.log_text.append(f"[DEBUG] Selected directory: {directory}")
+                self.log_text.append(f"[DEBUG] Found {len(all_files)} total files in directory")
+                self.log_text.append(f"[DEBUG] Supported extensions: {supported_extensions}")
+                self.log_text.append(f"[DEBUG] Found {len(self.files_to_process)} supported files")
+                for ext, count in format_counts.items():
+                    self.log_text.append(f"[DEBUG]   {ext}: {count} files")
+
+            self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
             self.reset_scan_state()
-
-    def show_preview_dialog(self, auto_start=False):
-        """Show preview of commands that would be executed."""
-        if not self.files_to_process:
-            messagebox.showwarning("No Files", "Please select files first.")
-            return
-
-        if not self.is_scanned:
-            messagebox.showwarning("Not Scanned", "Please scan files first before previewing commands.")
-            return
-
-        self.preview_window = tk.Toplevel(self)
-        self.preview_window.title("Command Preview")
-        self.preview_window.geometry("800x500")
-
-        # Set custom window icon for preview window
-        try:
-            # Try multiple methods for maximum compatibility
-            icon_path = self.get_resource_path("ICOtrans.ico")
-
-            # Method 1: Use iconbitmap (works best on Windows)
-            try:
-                self.preview_window.iconbitmap(icon_path)
-            except Exception:
-                # Method 2: Use iconphoto as fallback
-                try:
-                    from PIL import Image, ImageTk
-                    icon = Image.open(icon_path)
-                    icon = ImageTk.PhotoImage(icon)
-                    self.preview_window.iconphoto(True, icon)
-                except Exception:
-                    # Method 3: Use default Tkinter PhotoImage
-                    try:
-                        icon = tk.PhotoImage(file=icon_path)
-                        self.preview_window.iconphoto(True, icon)
-                    except Exception:
-                        print(f"Warning: Could not load custom icon for preview window: {icon_path}")
-
-        except Exception as e:
-            print(f"Warning: Could not load custom icon for preview window: {e}")
-
-        # Center the preview window on screen
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        x = (screen_width - 800) // 2
-        y = (screen_height - 500) // 2
-        self.preview_window.geometry(f"+{x}+{y}")
-
-        self.preview_window.transient(self)
-        self.preview_window.grab_set()
-        
-        # Main frame
-        main_frame = ttk.Frame(self.preview_window, padding=10)
-        main_frame.pack(fill="both", expand=True)
-        
-        # Info label
-        info_label = ttk.Label(main_frame, text=f"Preview of commands for {len(self.files_to_process)} files:")
-        info_label.pack(anchor="w", pady=(0, 10))
-        
-        # Text widget with scrollbar
-        text_frame = ttk.Frame(main_frame)
-        text_frame.pack(fill="both", expand=True)
-        
-        text_widget = tk.Text(text_frame, wrap="word", font=("Courier New", 9))
-        scrollbar = ttk.Scrollbar(text_frame, command=text_widget.yview)
-        text_widget.config(yscrollcommand=scrollbar.set)
-        
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Generate and display commands
-        commands = self.generate_preview_commands()
-        for i, (input_file, command) in enumerate(commands, 1):
-            filename = os.path.basename(input_file)
-            text_widget.insert("end", f"{i}. {filename}\n")
-            text_widget.insert("end", " ".join(command) + "\n\n")
-        
-        text_widget.config(state="disabled")
-        
-        # Button container frame
-        button_container = ttk.Frame(main_frame)
-        button_container.pack(pady=(10, 0))
-
-        # Center the buttons horizontally
-        button_container.grid_columnconfigure(0, weight=1)
-        button_container.grid_columnconfigure(2, weight=1)
-
-        # Start Remuxing button
-        if auto_start:
-            # Countdown variables
-            self.countdown_seconds = 10
-            self.countdown_active = True
-
-            start_btn = ttk.Button(button_container, text=f"Start Remuxing (Auto-start in {self.countdown_seconds}s)",
-                                  command=lambda: self.start_remuxing_from_preview(self.preview_window))
-            start_btn.grid(row=0, column=1, padx=(0, 10))
-            start_btn.configure(takefocus=0)
-
-            # Countdown timer function
-            def update_countdown():
-                if not self.countdown_active or not self.preview_window.winfo_exists():
-                    return
-
-                self.countdown_seconds -= 1
-                if self.countdown_seconds > 0:
-                    start_btn.config(text=f"Start Remuxing (Auto-start in {self.countdown_seconds}s)")
-                    # Schedule next update in 1 second
-                    self.after(1000, update_countdown)
-                else:
-                    start_btn.config(text="Starting Remux...")
-                    # Auto-start remuxing
-                    if self.preview_window.winfo_exists():
-                        self.start_remuxing_from_preview(self.preview_window)
-
-            # Start countdown timer
-            self.after(1000, update_countdown)  # Start updating after 1 second
-        else:
-            start_btn = ttk.Button(button_container, text="Start Remuxing",
-                                  command=lambda: self.start_remuxing_from_preview(self.preview_window))
-            start_btn.grid(row=0, column=1, padx=(0, 10))
-            start_btn.configure(takefocus=0)
-
-        # Close button
-        close_btn = ttk.Button(button_container, text="Close", command=lambda: [setattr(self, 'countdown_active', False), self.preview_window.destroy()])
-        close_btn.grid(row=0, column=2)
-        close_btn.configure(takefocus=0)
-
-        # Set focus on appropriate button by default
-        if auto_start:
-            close_btn.focus()  # Focus on close button when auto-start is enabled
-        else:
-            start_btn.focus()  # Focus on start button when manual start
-
-    def generate_preview_commands(self):
-        """Generate preview of all FFmpeg commands."""
-        commands = []
-        settings = {
-            "output_dir": self.output_directory,
-            "include_audio": self.include_audio.get(),
-            "use_timescale": self.use_timescale_option.get(),
-            "timescale_is_source": self.timescale_is_source.get(),
-            "timescale_preset": self.timescale_preset_var.get(),
-            "timescale_custom": self.timescale_custom_var.get(),
-            "scan_results": self.scan_results,
-        }
-
-        for video_file_path in self.files_to_process:
-            file_name = os.path.basename(video_file_path)
-            file_name_no_ext = os.path.splitext(file_name)[0]
-            output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
-            output_file_path = os.path.join(output_dir_final, file_name_no_ext + self.output_format_var.get())
-
-            command = [self.ffmpeg_path, "-y", "-i", video_file_path, "-c:v", "copy"]
-
-            # Handle audio mapping
-            if settings["include_audio"]:
-                # Map all audio streams (simplified behavior)
-                command.extend(["-map", "0:v", "-map", "0:a", "-c:a", "copy"])
-            else:
-                command.extend(["-an"])
-
-            if settings["use_timescale"]:
-                timescale = None
-                if settings["timescale_is_source"]:
-                    scan_result = settings["scan_results"].get(video_file_path, {})
-                    timescale = scan_result.get('fps')
-                else:
-                    preset = settings["timescale_preset"]
-                    timescale = settings["timescale_custom"] if preset == "Custom" else preset
-
-                if timescale:
-                    try:
-                        float(timescale)
-                        command.extend(["-video_track_timescale", str(timescale)])
-                    except ValueError:
-                        pass
-
-            command.append(output_file_path)
-            commands.append((video_file_path, command))
-
-        return commands
 
     def browse_input_files(self):
+        """Browse for individual input files."""
         filetypes = [("All supported", " ".join([f"*{ext}" for ext in self.supported_formats['input']]))]
         filetypes.extend([(f"{ext.upper()} files", f"*{ext}") for ext in self.supported_formats['input']])
-        files = filedialog.askopenfilenames(title="Select video files", filetypes=filetypes)
+        files, _ = QFileDialog.getOpenFileNames(self, "Select video files", "", ";;".join([f"{name} ({pattern})" for name, pattern in filetypes]))
         if files:
             self.files_to_process = list(files)
-            self.label_input_path.config(text=f"{len(self.files_to_process)} files selected")
+
+            # DEBUG: Add logging to track file selection (only in debug mode)
+            if self.debug_mode:
+                self.log_text.append(f"[DEBUG] Selected {len(self.files_to_process)} individual files:")
+                for file in self.files_to_process:
+                    self.log_text.append(f"[DEBUG]   {os.path.basename(file)}")
+
+            self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
             self.reset_scan_state()
-            
+
     def browse_output_folder(self):
-        directory = filedialog.askdirectory()
+        """Browse for output directory."""
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if directory:
             self.output_directory = directory
             self.selected_output_directory = directory  # Track user selection
             # Force shortening for testing
             shortened = self.shorten_path(directory, 30)  # Very aggressive shortening
-            self.label_output_path.config(text=shortened)
+            self.label_output_path.setText(shortened)
         else:
             self.output_directory = ""
             self.selected_output_directory = ""
-            self.label_output_path.config(text="Same as source")
+            self.label_output_path.setText("Same as source")
 
     def shorten_path(self, path, max_length=30):
         """Shorten a file path to fit within max_length characters."""
@@ -1797,7 +1347,7 @@ class RemuxApp(tk.Tk):
         if len(path) <= max_length:
             return path
 
-        # Split the path into components (use / since Windows paths might use /)
+        # Split the path into components
         parts = path.split('/')
 
         if len(parts) <= 1:
@@ -1815,26 +1365,64 @@ class RemuxApp(tk.Tk):
         """Clear the custom output folder and reset to 'Same as source'."""
         self.output_directory = ""
         self.selected_output_directory = ""
-        self.label_output_path.config(text="Same as source")
+        self.label_output_path.setText("Same as source")
+
+    def update_auto_start_setting(self, state):
+        """Update the auto_start_remux setting when checkbox is toggled."""
+        self.auto_start_remux = (state == Qt.Checked)
+
+    def update_checkbox_settings(self):
+        """Update boolean settings from their corresponding checkboxes."""
+        self.include_audio = self.audio_checkbox.isChecked()
+        self.preserve_timestamps = self.timestamp_checkbox.isChecked()
+        self.overwrite_existing = self.overwrite_checkbox.isChecked()
+        self.validate_files = self.validate_checkbox.isChecked()
+        self.preview_commands = self.preview_checkbox.isChecked()
+        self.use_timescale_option = self.timescale_checkbox.isChecked()
+
+        # After updating, trigger the auto-save
+        self.auto_save_settings()
+
+    def update_file_action_setting(self):
+        """Update the file_action setting when radio buttons change."""
+        if self.move_radio.isChecked():
+            self.file_action = FILE_ACTION_MOVE
+        elif self.keep_radio.isChecked():
+            self.file_action = FILE_ACTION_KEEP
+        elif self.delete_radio.isChecked():
+            self.file_action = FILE_ACTION_DELETE
+
+    def update_timescale_setting(self):
+        """Update the timescale settings when radio buttons change."""
+        pass # This function is now mostly handled by toggle_timescale_selector
+
+    def update_output_format_setting(self, text):
+        """Update the output_format setting when combo box changes."""
+        self.output_format = text
 
     def handle_run_click(self):
         """Handles the main button click, directing to scan or remux."""
         if not self.is_scanned:
             self.start_scan_thread()
         else:
-            self.start_remux_thread()
+            # If already scanned, show Start Remux button and hide Scan Files button
+            self.btn_start_remux.show()
+            self.btn_start_remux.setEnabled(True)
+            self.btn_run.hide()
+            self.log_text.append("Scan complete. Click 'Start Remux' to begin processing.")
 
     def toggle_pause(self):
+        """Toggle pause state."""
         if self.pause_event.is_set():
             self.pause_event.clear()
-            self.btn_pause.config(text="Resume")
-            self.process_queue.put(("LOG", "Paused."))
+            self.btn_pause.setText("Resume")
+            self.process_queue.put(("LOG", "Remuxing paused."))
             self.process_queue.put(("STATUS", "Paused..."))
         else:
             self.pause_event.set()
-            self.btn_pause.config(text="Pause")
-            self.process_queue.put(("LOG", "Resumed."))
-            self.process_queue.put(("STATUS", "Processing..."))
+            self.btn_pause.setText("Pause")
+            self.process_queue.put(("LOG", "Remuxing resumed."))
+            self.process_queue.put(("STATUS", "Remuxing..."))
 
     def skip_current_file(self):
         """Skip the currently processing file."""
@@ -1849,7 +1437,7 @@ class RemuxApp(tk.Tk):
                     self.current_process.terminate()
                 except Exception:
                     pass
-            
+
     def cancel_processing(self):
         """Cancel processing with proper synchronization and reset UI."""
         # Store current pause state
@@ -1860,11 +1448,12 @@ class RemuxApp(tk.Tk):
             self.pause_event.clear()
 
         # Show confirmation dialog
-        result = messagebox.askyesno("Cancel Processing",
-                                   "Are you sure you want to cancel the current operation?\n\n" +
-                                   "This will stop processing and reset the interface.")
+        result = QMessageBox.question(self, "Cancel Processing",
+                                    "Are you sure you want to cancel the current operation?\n\n" +
+                                    "This will stop processing and reset the interface.",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
-        if result:  # User clicked Yes
+        if result == QMessageBox.Yes:
             self.cancel_event.set()
             with self.process_lock:
                 if self.current_process:
@@ -1879,137 +1468,389 @@ class RemuxApp(tk.Tk):
             self.process_queue.put(("LOG", "Operation cancelled and interface reset."))
 
             # Re-enable source and output buttons after cancellation
-            self.btn_browse_folder.config(state="normal")
-            self.btn_browse_files.config(state="normal")
-            self.btn_browse_output.config(state="normal")
-            self.btn_clear_output.config(state="normal")
-        else:  # User clicked No, restore previous state
+            self.btn_browse_folder.setEnabled(True)
+            self.btn_browse_files.setEnabled(True)
+            self.btn_browse_output.setEnabled(True)
+            self.btn_clear_output.setEnabled(True)
+        else:
+            # User clicked No, restore previous state
             if not was_paused:
                 self.pause_event.set()
                 self.process_queue.put(("LOG", "Resumed after cancel dialog."))
 
-    def on_closing(self):
+    def closeEvent(self, event):
+        """Handle application close event."""
         # Save settings before closing
         try:
             self.save_settings()
         except Exception as e:
             print(f"Failed to save settings on close: {e}")
 
-        if self.btn_run['state'] == 'disabled':
-            if messagebox.askyesno("Exit", "A process is running. Are you sure you want to exit?"):
-                self.cancel_event.set()
-                with self.process_lock:
-                    if self.current_process:
-                        try:
-                            self.current_process.terminate()
-                        except Exception:
-                            pass
-                self.destroy()
-        else:
-            # Check if we're in a post-completion state and need to reset
-            if self.is_scanned and not self.files_to_process:
-                # We're in a completed state, reset UI before closing
-                self.reset_ui_after_processing()
-            self.destroy()
-# =============================================================================
-# WORKER THREADS
-# =============================================================================
-# Handle background processing tasks including file scanning and remuxing
-# operations using threading for non-blocking UI performance
+        if self.is_remuxer_running():
+            result = QMessageBox.question(self, "Exit", "A process is running. Are you sure you want to exit?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if result == QMessageBox.No:
+                event.ignore()
+                return
 
-# ---------- Worker Threads ----------
+            self.cancel_event.set()
+            with self.process_lock:
+                if self.current_process:
+                    try:
+                        self.current_process.terminate()
+                    except Exception:
+                        pass
 
+        # Check if we're in a post-completion state and need to reset
+        if self.is_scanned and not self.files_to_process:
+            # We're in a completed state, reset UI before closing
+            self.reset_ui_after_processing()
+
+        event.accept()
+
+    # =============================================================================
+    # SETTINGS UI METHODS
+    # =============================================================================
+
+    # =============================================================================
+    # INFO DIALOGS
+    # =============================================================================
+    def show_timescale_info(self):
+        """Show timescale information dialog."""
+        QMessageBox.information(self, "Video Timescale Info",
+            "This option can fix playback issues with Variable Frame Rate (VFR) videos.\n\n"
+            "• Use original frame rate: Scans each file to find its FPS and uses that value (Recommended).\n\n"
+            "• Force preset timescale: Forces a specific value for all videos. Useful if scanning fails or for special cases.\n\n"
+            "VIDEO EDITING BENEFITS:\n"
+            "• Smooth playback in video editors\n"
+            "• Accurate frame-accurate editing\n"
+            "• Prevents stuttering and sync issues\n"
+            "• Better compatibility with editing software"
+        )
+
+    def show_validation_info(self):
+        """Show validation information dialog."""
+        QMessageBox.information(self, "File Validation",
+            "File validation uses ffprobe to check if video files are readable before processing.\n\n"
+            "Benefits:\n"
+            "• Prevents errors during remuxing\n"
+            "• Identifies corrupted files early\n"
+            "• Provides better error reporting\n\n"
+            "Drawbacks:\n"
+            "• Slightly slower scanning process\n"
+            "• May reject files that could be processed\n\n"
+            "Recommendation: Enable for large batches, disable for quick processing."
+        )
+
+    def show_preview_info(self):
+        """Show preview information dialog."""
+        QMessageBox.information(self, "Command Preview",
+            "Command preview shows all FFmpeg commands before processing starts.\n\n"
+            "This feature is useful for:\n"
+            "• Understanding what the application will do\n"
+            "• Debugging processing issues\n"
+            "• Learning FFmpeg command structure\n"
+            "• Verifying settings before processing\n\n"
+            "The preview window shows:\n"
+            "• Input and output file paths\n"
+            "• All FFmpeg parameters being used\n"
+            "• Audio mapping configuration\n"
+            "• Timescale settings (if enabled)"
+        )
+
+    def show_output_format_info(self):
+        """Show output format information dialog."""
+        QMessageBox.information(self, "Output Format",
+            "Choose the format for remuxed video files.\n\n"
+            "Available formats:\n"
+            "• MP4: Most compatible, works on all devices\n"
+            "• MOV: Apple QuickTime format\n\n"
+            "MP4 is recommended for general use."
+        )
+
+    def show_file_management_info(self):
+        """Show file management information dialog."""
+        QMessageBox.information(self, "Original File Management",
+            "Controls what happens to original MKV files after remuxing.\n\n"
+            "• Move to subfolder: Creates 'Remuxed' folder and moves originals there\n"
+            "• Keep in place: Original files remain in their current location\n"
+            "• Delete original: Permanently removes original files (not recommended)\n\n"
+            "Move to subfolder is the safest option."
+        )
+
+    def show_audio_info(self):
+        """Show audio information dialog."""
+        QMessageBox.information(self, "Audio Streams",
+            "Controls whether audio tracks are included in the remuxed files.\n\n"
+            "• Include Audio: Copies all audio streams from original to output\n"
+            "• Exclude Audio: Creates video-only files (silent)\n\n"
+            "When audio is included, all audio tracks from the original file\n"
+            "are automatically preserved in the output.\n\n"
+            "Most videos should include audio for normal playback."
+        )
+
+    def show_timestamp_info(self):
+        """Show timestamp information dialog."""
+        QMessageBox.information(self, "Preserve Timestamps",
+            "Copies the original file's creation and modification dates to the remuxed file.\n\n"
+            "This helps maintain:\n"
+            "• File organization in media libraries\n"
+            "• Backup and sync software behavior\n"
+            "• Historical file information\n\n"
+            "Recommended for most users."
+        )
+
+    def show_overwrite_info(self):
+        """Show overwrite information dialog."""
+        QMessageBox.information(self, "Overwrite Existing Files",
+            "Controls behavior when output files already exist.\n\n"
+            "• Unchecked: Skip files if output already exists (default)\n"
+            "• Checked: Overwrite existing files with new remux\n\n"
+            "Use overwrite mode when re-processing the same files."
+        )
+
+    # =============================================================================
+    # LOG MANAGEMENT
+    # =============================================================================
+    def copy_log_to_clipboard(self):
+        """Copy the log output to clipboard."""
+        try:
+            # Get all text from the log widget
+            log_content = self.log_text.toPlainText()
+
+            if log_content.strip():  # Only copy if there's content
+                # Copy to clipboard
+                clipboard = QApplication.clipboard()
+                clipboard.setText(log_content)
+
+                # Show success message
+                QMessageBox.information(self, "Success", "Log output copied to clipboard!")
+            else:
+                QMessageBox.information(self, "Info", "No log content to copy.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to copy log to clipboard: {str(e)}")
+
+    def show_completion_dialog(self, message, data, elapsed_time=None):
+        """Show completion dialog with options to open directory or close."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Complete")
+        dialog.setModal(True)
+        dialog.setFixedSize(350, 150)
+
+        # Set window flags to ensure it stays on top and is properly layered
+        dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowCloseButtonHint)
+
+        # Ensure the dialog is raised to the top
+        dialog.raise_()
+        dialog.activateWindow()
+
+        # Override close event to ensure UI reset happens
+        dialog.closeEvent = lambda event: self.handle_completion_dialog_close(dialog, event)
+
+        layout = QVBoxLayout(dialog)
+ 
+        # Add stretchable space to push content down
+        layout.addStretch(1)
+ 
+        # Message
+        message_label = QLabel(message)
+        message_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(message_label)
+ 
+        # Elapsed time (if available)
+        if elapsed_time:
+            time_label = QLabel(f"Elapsed time: {elapsed_time}")
+            time_label.setAlignment(Qt.AlignCenter)
+            time_label.setStyleSheet("font-style: italic; color: gray;")
+            layout.addWidget(time_label)
+ 
+        # Add stretchable space to push content up
+        layout.addStretch(1)
+ 
+        # Buttons
+        buttons = QDialogButtonBox()
+        open_btn = buttons.addButton("Open Location", QDialogButtonBox.ActionRole)
+        close_btn = buttons.addButton("Close", QDialogButtonBox.RejectRole)
+ 
+        open_btn.clicked.connect(lambda: self.open_output_directory_and_close(dialog))
+        close_btn.clicked.connect(lambda: self.close_completion_dialog(dialog))
+ 
+        layout.addWidget(buttons)
+
+        dialog.exec_()
+
+    def open_output_directory_and_close(self, dialog):
+        """Open output directory and close completion dialog."""
+        if self.debug_mode:
+            self.log_text.append("[DEBUG] User clicked 'Open Location' in completion dialog")
+        dialog.accept()
+        self.open_output_directory()
+        self.reset_ui_after_processing()
+
+    def close_completion_dialog(self, dialog):
+        """Close completion dialog."""
+        if self.debug_mode:
+            self.log_text.append("[DEBUG] User clicked 'Close' in completion dialog")
+        dialog.accept()
+        self.reset_ui_after_processing()
+
+    def handle_completion_dialog_close(self, dialog, event):
+        """Handle completion dialog close event (including X button)."""
+        if self.debug_mode:
+            self.log_text.append("[DEBUG] Completion dialog closed via X button or other method")
+        # Always reset UI when dialog is closed, regardless of how
+        self.reset_ui_after_processing()
+        event.accept()
+
+    def open_output_directory(self):
+        """Open the output directory in the system file explorer."""
+        try:
+            output_dir = self.output_directory
+            if not output_dir:
+                # If no output directory specified, use the source directory
+                if self.files_to_process:
+                    output_dir = os.path.dirname(self.files_to_process[0])
+
+            if output_dir and os.path.exists(output_dir):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(output_dir))
+                self.process_queue.put(("LOG", f"Opened output directory: {output_dir}"))
+            else:
+                self.process_queue.put(("LOG", "Warning: Output directory not found or not specified"))
+        except Exception as e:
+            self.process_queue.put(("LOG", f"Warning: Failed to open output directory: {str(e)}"))
+
+    # =============================================================================
+    # WORKER THREADS
+    # =============================================================================
     def start_scan_thread(self):
+        """Start the file scanning thread."""
+        # DEBUG: Log files to process before starting scan (only in debug mode)
+        if self.debug_mode:
+            self.log_text.append(f"[DEBUG] Starting scan with {len(self.files_to_process)} files in queue:")
+            for i, file_path in enumerate(self.files_to_process, 1):
+                self.log_text.append(f"[DEBUG]   {i}. {os.path.basename(file_path)} - {file_path}")
+
         # Hide Auto-start Remux checkbox as soon as scanning starts
-        self.auto_start_checkbox.pack_forget()
+        self.auto_start_checkbox.hide()
 
         # Start scan timer
         self.scan_start_time = time.time()
 
         # Disable source and output buttons during scanning
-        self.btn_browse_folder.config(state="disabled")
-        self.btn_browse_files.config(state="disabled")
-        self.btn_browse_output.config(state="disabled")
-        self.btn_clear_output.config(state="disabled")
+        self.btn_browse_folder.setEnabled(False)
+        self.btn_browse_files.setEnabled(False)
+        self.btn_browse_output.setEnabled(False)
+        self.btn_clear_output.setEnabled(False)
 
-        self.btn_run.config(text="Scanning...", state="disabled")
-        self.log_text.config(state="normal")
-        self.log_text.delete(1.0, "end")
-        self.log_text.config(state="disabled")
-        self.process_queue.put(("LOG", f"Starting file scan for {len(self.files_to_process)} files..."))
+        self.btn_run.setText("Scanning...")
+        self.btn_run.setEnabled(False)
+        self.log_text.clear()
+
+        # Add session header to log
+        from datetime import datetime
+        session_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.process_queue.put(("LOG", "=" * 70))
+        self.process_queue.put(("LOG", f"STPA REMUXER LOG SESSION - {session_time}"))
+        self.process_queue.put(("LOG", "=" * 70))
 
         threading.Thread(target=self.scan_files_worker, args=(list(self.files_to_process),), daemon=True).start()
 
-    def scan_single_file(self, file_path):
-        """Scan a single video file for metadata (used by parallel worker)."""
-        result = {'valid': True, 'fps': None, 'duration': 0}
+    def start_remux_thread_auto(self):
+        """Auto-start remuxing after scan completion."""
+        # Show command preview if enabled, even for auto-start
+        if self.preview_commands:
+            # The dialog's result will be True if "accept()" was called, False otherwise
+            user_accepted = self.show_preview_dialog(auto_start=True)
 
-        try:
-            # Get FPS first (separate call to ensure proper logging)
-            fps_command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
-                         "-show_entries", "stream=avg_frame_rate", "-of",
-                         "default=noprint_wrappers=1:nokey=1", file_path]
+            # Only proceed if the user clicked "Start Remuxing" in the dialog
+            if not user_accepted:
+                # If user closed dialog, behave like clicking scan button again
+                self.btn_start_remux.show()
+                self.btn_start_remux.setEnabled(True)
+                self.btn_run.hide()
+                self.log_text.append("Auto-start cancelled. Click 'Start Remux' to begin processing.")
+                return  # Stop here if the user closed the dialog
 
-            fps_process = subprocess.run(fps_command, capture_output=True, text=True, check=True, timeout=self.FPS_SCAN_TIMEOUT,
-                                       creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        # Continue with normal remuxing if preview is disabled or user clicked Start
+        self.start_remuxing_process()
 
-            fps_fraction = fps_process.stdout.strip()
-            if '/' in fps_fraction and fps_fraction != "0/0":
-                num, den = map(int, fps_fraction.split('/'))
-                if den != 0:
-                    fps_value = num / den
-                    result['fps'] = str(fps_value)
-                    # Log FPS detection for VFR functionality
-                    self.process_queue.put(("LOG", f"Detected FPS: {fps_value} for {os.path.basename(file_path)}"))
-            elif fps_fraction and fps_fraction != "0/0":
-                try:
-                    fps_value = float(fps_fraction)
-                    result['fps'] = fps_fraction
-                    # Log FPS detection for VFR functionality
-                    self.process_queue.put(("LOG", f"Detected FPS: {fps_value} for {os.path.basename(file_path)}"))
-                except ValueError:
-                    pass
+    def start_remux_thread(self):
+        """Start the remuxing thread, showing a preview if enabled."""
+        # If the preview option is checked, show the dialog and wait
+        if self.preview_commands:
+            # The dialog's result will be True if "accept()" was called, False otherwise
+            user_accepted = self.show_preview_dialog()
 
-            # Get duration and other info in a separate optimized call
-            duration_command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
-                              "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+            # Only proceed if the user clicked "Start Remuxing" in the dialog
+            if not user_accepted:
+                # If user closed dialog, behave like clicking scan button again
+                self.btn_start_remux.show()
+                self.btn_start_remux.setEnabled(True)
+                self.btn_run.hide()
+                self.log_text.append("Preview cancelled. Click 'Start Remux' to begin processing.")
+                return  # Stop here if the user closed the dialog
 
-            duration_process = subprocess.run(duration_command, capture_output=True, text=True, timeout=self.FFPROBE_TIMEOUT,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        # If we get here, either the preview was disabled or the user accepted it.
+        # We can now safely start the remuxing process.
+        self.start_remuxing_process()
 
-            if duration_process.returncode == 0:
-                try:
-                    result['duration'] = float(duration_process.stdout.strip())
-                except ValueError:
-                    pass
+    def start_remuxing_process(self):
+        """Start the actual remuxing process after preview (if enabled)."""
+        # Disable source and output buttons during remuxing
+        self.btn_browse_folder.setEnabled(False)
+        self.btn_browse_files.setEnabled(False)
+        self.btn_browse_output.setEnabled(False)
+        self.btn_clear_output.setEnabled(False)
 
-            # Get audio track info if audio is included (separate call for detailed audio info)
-            if self.include_audio.get():
-                audio_tracks = self.get_audio_track_info(file_path)
-                result['audio_tracks'] = len(audio_tracks)
-                if audio_tracks:
-                    languages = [track['language'] for track in audio_tracks if track['language'] != 'und']
-                    result['languages'] = languages
+        self.btn_start_remux.setEnabled(False)
+        self.btn_start_remux.setText("Remuxing...")
+        self.btn_pause.setEnabled(True)
+        self.btn_pause.setText("Pause")
+        self.btn_skip.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        self.disable_settings_controls()
+        self.cancel_event.clear()
+        self.skip_event.clear()
+        self.pause_event.set()
 
-        except subprocess.TimeoutExpired:
-            result['valid'] = False
-            self.process_queue.put(("LOG", f"Warning: Timeout scanning: {os.path.basename(file_path)}"))
-        except Exception as e:
-            result['valid'] = False
-            self.process_queue.put(("LOG", f"Warning: Error scanning {os.path.basename(file_path)}: {str(e)[:50]}"))
 
-        return result
+        settings = {
+            "files": list(self.files_to_process),
+            "output_dir": self.output_directory,
+            "include_audio": self.include_audio,
+            "file_action": self.file_action,
+            "use_timescale": self.use_timescale_option,
+            "scan_results": self.scan_results,
+            "output_format": self.output_format,
+            "preserve_timestamps": self.preserve_timestamps,
+            "overwrite_existing": self.overwrite_existing,
+        }
+
+        # Record start time for elapsed time calculation
+        self.processing_start_time = time.time()
+
+        self.process_queue.put(("LOG", "=" * 70))
+        self.process_queue.put(("LOG", f"Remux process started for {len(settings['files'])} files..."))
+        threading.Thread(target=self.remux_videos_worker, args=(settings,), daemon=True).start()
 
     def scan_files_worker(self, files):
         """Scan multiple video files in parallel for improved performance."""
         results = {}
         total_files = len(files)
 
+        # DEBUG: Log scanning start (only in debug mode)
+        if self.debug_mode:
+            self.process_queue.put(("LOG", f"[DEBUG] Starting scan of {total_files} files"))
+            self.process_queue.put(("LOG", f"[DEBUG] FFmpeg path: {self.ffmpeg_path}"))
+            self.process_queue.put(("LOG", f"[DEBUG] FFprobe path: {self.ffprobe_path}"))
+            self.process_queue.put(("LOG", f"[DEBUG] Validation enabled: {self.validate_files}"))
+
         # Use ThreadPoolExecutor for parallel scanning
-        max_scan_workers = min(8, total_files)  # Limit to 8 workers or number of files, whichever is smaller
+        max_workers = min(8, os.cpu_count() or 1) if total_files > 1 else 1
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_scan_workers) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all scan tasks
                 future_to_file = {
                     executor.submit(self.scan_single_file, file_path): file_path
@@ -2032,10 +1873,17 @@ class RemuxApp(tk.Tk):
                         result = future.result()
                         results[file_path] = result
 
-                        # FPS tracking removed per user request
-
                         completed_count += 1
 
+                        # DEBUG: Log each file result as it completes (only in debug mode)
+                        if self.debug_mode:
+                            file_name = os.path.basename(file_path)
+                            is_valid = result.get('valid', False)
+                            fps = result.get('fps', 'N/A')
+                            duration = result.get('duration', 0)
+                            audio_tracks = result.get('audio_tracks', 0)
+                            # Use a cleaner, formatted string for the log
+                            self.process_queue.put(("LOG", f"[DEBUG] Scanned {file_name}: valid={is_valid}, fps={fps}, duration={duration:.2f}s, audio={audio_tracks}"))
                         # Batch progress updates to reduce UI overhead (every 5 files or at the end)
                         if completed_count % 5 == 0 or completed_count == total_files:
                             progress_percent = (completed_count / total_files) * 100
@@ -2082,65 +1930,160 @@ class RemuxApp(tk.Tk):
                             'percent': progress_percent
                         }))
 
-        # High FPS detection feature removed per user request
+        # DEBUG: Log final results summary (only in debug mode)
+        if self.debug_mode:
+            valid_count = sum(1 for r in results.values() if r.get('valid', False))
+            invalid_count = len(results) - valid_count
+            self.process_queue.put(("LOG", f"[DEBUG] Scan complete: {valid_count} valid, {invalid_count} invalid files"))
+            self.process_queue.put(("LOG", f"[DEBUG] Total results: {len(results)}"))
+
+        # Add a summary of validation if it was enabled
+        if self.validate_files:
+            valid_count = sum(1 for r in results.values() if r.get('valid', True))
+            total_count = len(results)
+            self.process_queue.put(("LOG", f"Validated {valid_count}/{total_count} files successfully."))
+
+        # --- ADDED: FPS Summary ---
+        fps_summary = {}
+        for result in results.values():
+            fps = result.get('fps')
+            if fps:
+                try:
+                    # Round to 3 decimal places to group similar FPS (e.g., 23.976)
+                    rounded_fps = f"{float(fps):.3f}".rstrip('0').rstrip('.')
+                    fps_summary[rounded_fps] = fps_summary.get(rounded_fps, 0) + 1
+                except (ValueError, TypeError):
+                    # Handle non-numeric FPS values if they somehow occur
+                    fps_summary[fps] = fps_summary.get(fps, 0) + 1
+
+        if fps_summary:
+            self.process_queue.put(("LOG", "Detected Frame Rates:"))
+            # Sort by FPS value (as float) for a clean, ordered list
+            for fps, count in sorted(fps_summary.items(), key=lambda item: float(item[0])):
+                self.process_queue.put(("LOG", f"  - {fps} FPS: {count} file(s)"))
+        # --- END ADDITION ---
 
         self.process_queue.put(('SCAN_COMPLETE', {'results': results}))
 
-    def start_remux_thread(self, auto_start=False):
+    def scan_single_file(self, file_path):
+        """Scan a single video file for metadata (used by parallel worker)."""
+        result = {'valid': True, 'fps': None, 'duration': 0}
+        file_name = os.path.basename(file_path) # Get the filename for logging
 
-        # Show command preview if enabled
-        if self.preview_commands_var.get():
-            self.show_preview_dialog(auto_start=auto_start)
-            # Wait for user to click Start or Close in the preview dialog
-            self.wait_window(self.preview_window)
-            # If user clicked Start, continue with remuxing
-            if hasattr(self, 'preview_start_remuxing') and self.preview_start_remuxing:
-                self.preview_start_remuxing = False  # Reset flag
-            else:
-                return  # User clicked Close, don't start remuxing
+        # Skip validation if validation is disabled
+        if not self.validate_files:
+            try:
+                # Get FPS first (separate call to ensure proper logging)
+                fps_command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
+                             "-show_entries", "stream=avg_frame_rate", "-of",
+                             "default=noprint_wrappers=1:nokey=1", file_path]
 
-        # Disable source and output buttons during remuxing
-        self.btn_browse_folder.config(state="disabled")
-        self.btn_browse_files.config(state="disabled")
-        self.btn_browse_output.config(state="disabled")
-        self.btn_clear_output.config(state="disabled")
+                fps_process = subprocess.run(fps_command, capture_output=True, text=True, check=True, timeout=FPS_SCAN_TIMEOUT,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
 
-        self.btn_start_remux.config(state="disabled", text="Remuxing...")
-        self.btn_pause.config(state="normal", text="Pause")
-        self.btn_skip.config(state="normal")
-        self.btn_cancel.config(state="normal")
-        self.disable_settings_controls()
-        self.cancel_event.clear()
-        self.skip_event.clear()
-        self.pause_event.set()
+                fps_fraction = fps_process.stdout.strip()
+                if '/' in fps_fraction and fps_fraction != "0/0":
+                    num, den = map(int, fps_fraction.split('/'))
+                    if den != 0:
+                        fps_value = num / den
+                        result['fps'] = str(fps_value)
+                elif fps_fraction and fps_fraction != "0/0":
+                    try:
+                        fps_value = float(fps_fraction)
+                        result['fps'] = fps_fraction
+                    except ValueError:
+                        pass
 
-        settings = {
-            "files": list(self.files_to_process),
-            "output_dir": self.output_directory,
-            "include_audio": self.include_audio.get(),
-            "file_action": self.file_action_var.get(),
-            "use_timescale": self.use_timescale_option.get(),
-            "timescale_is_source": self.timescale_is_source.get(),
-            "timescale_preset": self.timescale_preset_var.get(),
-            "timescale_custom": self.timescale_custom_var.get(),
-            "scan_results": self.scan_results,
-            "output_format": self.output_format_var.get(),
-            "preserve_timestamps": self.preserve_timestamps_var.get(),
-            "overwrite_existing": self.overwrite_existing_var.get(),
-        }
+                # Get duration and other info in a separate optimized call
+                duration_command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
+                                  "-of", "default=noprint_wrappers=1:nokey=1", file_path]
 
-        # Record start time for elapsed time calculation
-        self.processing_start_time = time.time()
+                duration_process = subprocess.run(duration_command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
 
-        self.process_queue.put(("LOG", f"Remux process started for {len(settings['files'])} files..."))
-        self.process_queue.put(("LOG", ""))
-        threading.Thread(target=self.remux_videos_worker, args=(settings,), daemon=True).start()
+                if duration_process.returncode == 0:
+                    try:
+                        result['duration'] = float(duration_process.stdout.strip())
+                    except ValueError:
+                        pass
+
+                # Get audio track info if audio is included (separate call for detailed audio info)
+                if self.include_audio:
+                    audio_tracks = self.get_audio_track_info(file_path)
+                    result['audio_tracks'] = len(audio_tracks)
+                    if audio_tracks:
+                        languages = [track['language'] for track in audio_tracks if track['language'] != 'und']
+                        result['languages'] = languages
+
+            except subprocess.TimeoutExpired:
+                self.process_queue.put(("LOG", f"Warning: Timeout scanning: {file_name}"))
+            except Exception as e:
+                self.process_queue.put(("LOG", f"Warning: Error scanning {file_name}: {str(e)}"))
+
+            return result
+
+        # Perform validation if validation is enabled
+        try:
+            # Get FPS first (separate call to ensure proper logging)
+            fps_command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
+                         "-show_entries", "stream=avg_frame_rate", "-of",
+                         "default=noprint_wrappers=1:nokey=1", file_path]
+
+            fps_process = subprocess.run(fps_command, capture_output=True, text=True, check=True, timeout=FPS_SCAN_TIMEOUT,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+
+            fps_fraction = fps_process.stdout.strip()
+            if '/' in fps_fraction and fps_fraction != "0/0":
+                num, den = map(int, fps_fraction.split('/'))
+                if den != 0:
+                    fps_value = num / den
+                    result['fps'] = str(fps_value)
+            elif fps_fraction and fps_fraction != "0/0":
+                try:
+                    fps_value = float(fps_fraction)
+                    result['fps'] = fps_fraction
+                except ValueError:
+                    pass
+
+            # Get duration and other info in a separate optimized call
+            duration_command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+
+            duration_process = subprocess.run(duration_command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+
+            if duration_process.returncode == 0:
+                try:
+                    result['duration'] = float(duration_process.stdout.strip())
+                except ValueError:
+                    pass
+
+            # Get audio track info if audio is included (separate call for detailed audio info)
+            if self.include_audio:
+                audio_tracks = self.get_audio_track_info(file_path)
+                result['audio_tracks'] = len(audio_tracks)
+                if audio_tracks:
+                    languages = [track['language'] for track in audio_tracks if track['language'] != 'und']
+                    result['languages'] = languages
+
+        except subprocess.TimeoutExpired:
+            result['valid'] = False
+            self.process_queue.put(("LOG", f"Warning: Timeout scanning: {file_name}"))
+        except Exception as e:
+            result['valid'] = False
+            self.process_queue.put(("LOG", f"Warning: Error scanning {file_name}: {str(e)}"))
+
+        # *** ADDED THIS BLOCK TO LOG VALIDATION STATUS ***
+        # Only log validation failures to reduce log spam
+        if not result['valid']:
+            self.process_queue.put(("LOG", f"✗ Validation failed for {file_name}"))
+
+        return result
 
     def remux_videos_worker(self, settings):
         """Process video files sequentially with simple monitoring."""
         total_videos = len(settings["files"])
-        remuxed_count, skipped_count = 0, 0
-        self.process_queue.put(("LOG", f"Starting remux for {total_videos} files..."))
+        remuxed_count, skipped_count, error_count = 0, 0, 0
 
         for i, video_file_path in enumerate(settings["files"]):
             self.pause_event.wait()
@@ -2159,35 +2102,27 @@ class RemuxApp(tk.Tk):
             scan_result = settings["scan_results"].get(video_file_path, {})
             duration = scan_result.get('duration', 0)
 
-            self.process_queue.put(("STATUS", f"Processing: {file_name}"))
+            self.process_queue.put(("STATUS", f"Remuxing: {file_name}"))
             self.process_queue.put(("PROGRESS", {'total_percent': (i / total_videos) * 100, 'current': i, 'total': total_videos}))
             self.process_queue.put(("CURRENT_FILE", {'filename': file_name, 'duration': duration}))
 
             # Check if file is valid
             if not scan_result.get('valid', True):
                 self.process_queue.put(("LOG", f"Skipping invalid file: {file_name}"))
-                # Skip invalid file without moving original file to Remuxed folder
-                self.process_queue.put(("LOG", f"   [FILE] Original file left in place (invalid)"))
                 skipped_count += 1
                 continue
-
-            if os.path.exists(output_file_path):
-                if settings.get("overwrite_existing", False):
-                    self.process_queue.put(("LOG", f"Overwriting existing output: {file_name}"))
-                else:
-                    self.process_queue.put(("LOG", f"Skipping (output exists): {file_name}"))
-                    # Skip file without moving original file to Remuxed folder
-                    self.process_queue.put(("LOG", f"   [FILE] Original file left in place (skipped)"))
-                    skipped_count += 1
-                    continue
 
             # Build and execute command
             command, output_file_path = self.build_ffmpeg_command(video_file_path, settings)
 
             # Use simple execution without complex monitoring
-            result = self.execute_ffmpeg_process(command, output_file_path, file_name, duration, settings)
+            result = self.execute_ffmpeg_process(command, output_file_path, file_name, duration, settings, video_file_path)
 
-            if result == "completed":
+            # Update counts based on the result
+            if result == "error":
+                error_count += 1
+                skipped_count += 1
+            elif result == "completed":
                 remuxed_count += 1
             elif result == "skipped":
                 skipped_count += 1
@@ -2197,342 +2132,467 @@ class RemuxApp(tk.Tk):
         self.process_queue.put(("PROGRESS", {'total_percent': 100, 'current': total_videos, 'total': total_videos}))
         self.process_queue.put(("FINISHED", {'remuxed': remuxed_count, 'skipped': skipped_count}))
 
-    def remux_single_file(self, video_file_path, settings, file_index, total_files):
-        """Process a single video file (used by parallel worker)."""
-        file_name = os.path.basename(video_file_path)
-        output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
-        output_file_path = os.path.join(output_dir_final, os.path.splitext(file_name)[0] + settings["output_format"])
-
-        # Get file info for progress tracking
-        scan_result = settings["scan_results"].get(video_file_path, {})
-        duration = scan_result.get('duration', 0)
-
-        self.process_queue.put(("STATUS", f"Processing: {file_name}"))
-        self.process_queue.put(("CURRENT_FILE", {'filename': file_name, 'duration': duration}))
-
-        # Check if file is valid
-        if not scan_result.get('valid', True):
-            self.process_queue.put(("LOG", f"Skipping invalid file: {file_name}"))
-            # Skip invalid file without moving original file to Remuxed folder
-            self.process_queue.put(("LOG", f"   [FILE] Original file left in place (invalid)"))
-            return "skipped"
-
+    def execute_ffmpeg_process(self, command, output_file_path, file_name, duration, settings, source_file_path):
+        """Execute FFmpeg process with real-time output reading to prevent freezing."""
+        # --- Consolidated Pre-check and Logging ---
         if os.path.exists(output_file_path):
             if settings.get("overwrite_existing", False):
-                self.process_queue.put(("LOG", f"Overwriting existing output: {file_name}"))
+                self.process_queue.put(("LOG", f"Remuxing: {file_name} (Overwriting existing)"))
             else:
-                self.process_queue.put(("LOG", f"Skipping (output exists): {file_name}"))
-                # Skip file without moving original file to Remuxed folder
-                self.process_queue.put(("LOG", f"   [FILE] Original file left in place (skipped)"))
+                self.process_queue.put(("LOG", f"Skipping: {file_name} (Output file already exists)"))
                 return "skipped"
-
-        # Build and execute command
-        command, output_file_path = self.build_ffmpeg_command(video_file_path, settings)
-
-        # Use simple execution without complex monitoring
-        result = self.execute_ffmpeg_process(command, output_file_path, file_name, duration, settings)
-
-        # Handle original file for completed files
-        if result == "completed":
-            self.handle_original_file(file_name, output_file_path, settings)
-
-        return result
-
-    # =============================================================================
-    # UI CALLBACKS
-    # =============================================================================
-    # Handle UI event responses and dynamic updates for settings controls and
-    # user interactions including timescale options, info dialogs, and validation
-
-    # ---------- UI Callbacks ----------
-
-
-
-    def on_timescale_option_change(self, *args):
-        use_preset = not self.timescale_is_source.get()
-        if use_preset and self.use_timescale_option.get():
-            self.timescale_combobox.config(state="readonly")
-            if self.timescale_preset_var.get() == "Custom":
-                self.custom_timescale_entry.config(state="normal")
         else:
-            self.timescale_combobox.config(state="disabled")
-            self.custom_timescale_entry.config(state="disabled")
-            
-    def check_custom_timescale(self, event=None):
-        if self.timescale_preset_var.get() == "Custom":
-            self.custom_timescale_entry.config(state="normal")
-        else:
-            self.custom_timescale_entry.config(state="disabled")
+            self.process_queue.put(("LOG", f"Remuxing: {file_name}"))
+        # --- End Consolidation ---
 
-    def toggle_timescale_selector(self):
-        if self.use_timescale_option.get():
-            self.timescale_options_container.pack(fill="x", pady=(5, 0), padx=10)
-            # Force update of the options state
-            self.after(10, self.on_timescale_option_change)
-        else:
-            self.timescale_options_container.pack_forget()
-            # Reset the custom entry state when hiding
-            self.timescale_combobox.config(state=self.UI_STATE_DISABLED)
-            self.custom_timescale_entry.config(state=self.UI_STATE_DISABLED)
-
-    def show_timescale_info(self):
-        messagebox.showinfo(
-            "Video Timescale Info",
-            "This option can fix playback issues with Variable Frame Rate (VFR) videos.\n\n"
-            "• Use original frame rate: Scans each file to find its FPS and uses that value (Recommended).\n\n"
-            "• Force preset timescale: Forces a specific value for all videos. Useful if scanning fails or for special cases.\n\n"
-            "VIDEO EDITING BENEFITS:\n"
-            "• Smooth playback in video editors\n"
-            "• Accurate frame-accurate editing\n"
-            "• Prevents stuttering and sync issues\n"
-            "• Better compatibility with editing software"
-        )
-
-    def show_validation_info(self):
-        messagebox.showinfo(
-            "File Validation",
-            "File validation uses ffprobe to check if video files are readable before processing.\n\n"
-            "Benefits:\n"
-            "• Prevents errors during remuxing\n"
-            "• Identifies corrupted files early\n"
-            "• Provides better error reporting\n\n"
-            "Drawbacks:\n"
-            "• Slightly slower scanning process\n"
-            "• May reject files that could be processed\n\n"
-            "Recommendation: Enable for large batches, disable for quick processing."
-        )
-
-    def show_preview_info(self):
-        messagebox.showinfo(
-            "Command Preview",
-            "Command preview shows all FFmpeg commands before processing starts.\n\n"
-            "This feature is useful for:\n"
-            "• Understanding what the application will do\n"
-            "• Debugging processing issues\n"
-            "• Learning FFmpeg command structure\n"
-            "• Verifying settings before processing\n\n"
-            "The preview window shows:\n"
-            "• Input and output file paths\n"
-            "• All FFmpeg parameters being used\n"
-            "• Audio mapping configuration\n"
-            "• Timescale settings (if enabled)"
-        )
-
-    def show_output_format_info(self):
-        messagebox.showinfo(
-            "Output Format",
-            "Choose the format for remuxed video files.\n\n"
-            "Available formats:\n"
-            "• MP4: Most compatible, works on all devices\n"
-            "• MOV: Apple QuickTime format\n\n"
-            "MP4 is recommended for general use."
-        )
-
-    def show_file_management_info(self):
-        messagebox.showinfo(
-            "Original File Management",
-            "Controls what happens to original MKV files after remuxing.\n\n"
-            "• Move to subfolder: Creates 'Remuxed' folder and moves originals there\n"
-            "• Keep in place: Original files remain in their current location\n"
-            "• Delete original: Permanently removes original files (not recommended)\n\n"
-            "Move to subfolder is the safest option."
-        )
-
-    def show_audio_info(self):
-        messagebox.showinfo(
-            "Audio Streams",
-            "Controls whether audio tracks are included in the remuxed files.\n\n"
-            "• Include Audio: Copies all audio streams from original to output\n"
-            "• Exclude Audio: Creates video-only files (silent)\n\n"
-            "When audio is included, all audio tracks from the original file\n"
-            "are automatically preserved in the output.\n\n"
-            "Most videos should include audio for normal playback."
-        )
-
-    def show_timestamp_info(self):
-        messagebox.showinfo(
-            "Preserve Timestamps",
-            "Copies the original file's creation and modification dates to the remuxed file.\n\n"
-            "This helps maintain:\n"
-            "• File organization in media libraries\n"
-            "• Backup and sync software behavior\n"
-            "• Historical file information\n\n"
-            "Recommended for most users."
-        )
-
-    def show_overwrite_info(self):
-        messagebox.showinfo(
-            "Overwrite Existing Files",
-            "Controls behavior when output files already exist.\n\n"
-            "• Unchecked: Skip files if output already exists (default)\n"
-            "• Checked: Overwrite existing files with new remux\n\n"
-            "Use overwrite mode when re-processing the same files."
-        )
-
-    # =============================================================================
-    # SETTINGS CONTROL CALLBACKS
-    # =============================================================================
-    # Handle settings-related UI interactions including log management,
-    # completion dialogs, and directory operations
-
-    # ---------- Settings Control Callbacks ----------
-
-
-    def copy_log_to_clipboard(self):
-        """Copy the log output to clipboard."""
         try:
-            # Get all text from the log widget
-            log_content = self.log_text.get(1.0, "end-1c")  # Get all text except the last newline
+            # self.process_queue.put(("LOG", f""))
+            # self.process_queue.put(("LOG", f"{'='*60}"))
+            # self.process_queue.put(("LOG", f"[PROCESSING] {file_name}"))
+            # self.process_queue.put(("LOG", f"{'='*60}"))
 
-            if log_content.strip():  # Only copy if there's content
-                # Copy to clipboard
-                self.clipboard_clear()
-                self.clipboard_append(log_content)
-                self.update()  # Keep the clipboard data after the window closes
+            # Run the command with real-time output reading
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Combine stdout and stderr
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
 
-                # Show success message
-                messagebox.showinfo("Success", "Log output copied to clipboard!")
-            else:
-                messagebox.showinfo("Info", "No log content to copy.")
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to copy log to clipboard: {str(e)}")
-
-    def show_completion_dialog(self, message, data, elapsed_time=None):
-        """Show completion dialog with options to open directory or close."""
-        # Create custom dialog
-        dialog = tk.Toplevel(self)
-        dialog.title("Complete")
-        dialog.geometry("350x180")  # Increased height to accommodate elapsed time
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-
-        # Set custom window icon for completion dialog
-        try:
-            # Try multiple methods for maximum compatibility
-            icon_path = self.get_resource_path("ICOtrans.ico")
-
-            # Method 1: Use iconbitmap (works best on Windows)
-            try:
-                dialog.iconbitmap(icon_path)
-            except Exception:
-                # Method 2: Use iconphoto as fallback
-                try:
-                    from PIL import Image, ImageTk
-                    icon = Image.open(icon_path)
-                    icon = ImageTk.PhotoImage(icon)
-                    dialog.iconphoto(True, icon)
-                except Exception:
-                    # Method 3: Use default Tkinter PhotoImage
+            # Read output line by line to prevent freezing
+            while True:
+                if self.cancel_event.is_set():
+                    process.terminate()
                     try:
-                        icon = tk.PhotoImage(file=icon_path)
-                        dialog.iconphoto(True, icon)
+                        if os.path.exists(output_file_path):
+                            os.remove(output_file_path)
                     except Exception:
-                        print(f"Warning: Could not load custom icon for completion dialog: {icon_path}")
+                        pass
+                    return "cancelled"
+
+                if self.skip_event.is_set():
+                    self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
+                    process.terminate()
+                    try:
+                        if os.path.exists(output_file_path):
+                            os.remove(output_file_path)
+                    except Exception:
+                        pass
+
+                    # Skip file without moving original file to Remuxed folder
+                    return "skipped"
+
+                # Check for pause event - this makes pause responsive during file processing
+                if not self.pause_event.is_set():
+                    # Pause requested - wait for resume or other events
+                    while not self.pause_event.is_set() and not self.cancel_event.is_set() and not self.skip_event.is_set():
+                        time.sleep(0.1)  # Small delay to prevent busy waiting
+
+                    # If cancelled or skipped while paused, handle accordingly
+                    if self.cancel_event.is_set():
+                        process.terminate()
+                        try:
+                            if os.path.exists(output_file_path):
+                                os.remove(output_file_path)
+                        except Exception:
+                            pass
+                        return "cancelled"
+
+                    if self.skip_event.is_set():
+                        self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
+                        process.terminate()
+                        try:
+                            if os.path.exists(output_file_path):
+                                os.remove(output_file_path)
+                        except Exception:
+                            pass
+
+                        # Skip file without moving original file to Remuxed folder
+                        return "skipped"
+
+                    # If we get here, pause was lifted, continue processing
+                    continue
+
+                # Read output line by line to prevent buffer overflow and freezing
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+
+                if output:
+                    # Log FFmpeg output with detailed information but less frequently
+                    stripped_output = output.strip()
+                    if stripped_output:
+                        # Log detailed progress information but reduce frequency
+                        if self.debug_mode and any(keyword in stripped_output for keyword in ['time=', 'frame=', 'size=', 'fps=', 'bitrate=']):
+                            self.process_queue.put(("LOG", f"   [FFMPEG] {stripped_output}"))
+
+            # Wait for process to complete
+            process.wait()
+
+            if self.cancel_event.is_set():
+                try:
+                    if os.path.exists(output_file_path):
+                        os.remove(output_file_path)
+                except Exception:
+                    pass
+                return "cancelled"
+
+            if process.returncode == 0:
+                self.process_queue.put(("LOG", f"   -> Success"))
+
+                # Preserve original file timestamps if option is enabled
+                if settings.get("preserve_timestamps", False):
+                    # Use the original source file path that was passed to this function
+                    # DEBUG: Log the paths being used for timestamp preservation
+                    if self.debug_mode:
+                        self.process_queue.put(("LOG", f"   [DEBUG] Attempting timestamp preservation"))
+                        self.process_queue.put(("LOG", f"   [DEBUG] Source file path: {source_file_path}"))
+                        self.process_queue.put(("LOG", f"   [DEBUG] Target file path: {output_file_path}"))
+                        self.process_queue.put(("LOG", f"   [DEBUG] Source file exists: {os.path.exists(source_file_path)}"))
+                        self.process_queue.put(("LOG", f"   [DEBUG] Target file exists: {os.path.exists(output_file_path)}"))
+                    if self.preserve_file_timestamps(source_file_path, output_file_path):
+                        if self.debug_mode:
+                            self.process_queue.put(("LOG", f"   -> [DEBUG] Timestamps preserved"))
+                    else:
+                        self.process_queue.put(("LOG", f"   -> WARNING: Failed to preserve timestamps"))
+
+                # Handle original file
+                self.handle_original_file(file_name, output_file_path, settings)
+                return "completed"
+            else:
+                self.process_queue.put(("LOG", f"   -> ERROR: Failed remuxing {file_name}. Return code: {process.returncode}"))
+                return "error"
 
         except Exception as e:
-            print(f"Warning: Could not load custom icon for completion dialog: {e}")
+            self.process_queue.put(("LOG", f"   -> CRITICAL ERROR: {e}"))
+            return "error"
 
-        # Center the dialog
-        dialog.geometry("+%d+%d" % (self.winfo_rootx() + self.winfo_width()//2 - 175,
-                                    self.winfo_rooty() + self.winfo_height()//2 - 90))
+    def preserve_file_timestamps(self, source_file, target_file):
+        """Copy timestamps from source file to target file."""
+        try:
+            # Get timestamps from source file
+            stat_info = os.stat(source_file)
+            access_time = stat_info.st_atime
+            modify_time = stat_info.st_mtime
 
-        # Main frame
-        main_frame = ttk.Frame(dialog, padding=20)
-        main_frame.pack(fill="both", expand=True)
+            # Apply timestamps to target file
+            os.utime(target_file, (access_time, modify_time))
+            return True
+        except Exception as e:
+            self.process_queue.put(("LOG", f"Warning: Failed to preserve timestamps: {str(e)}"))
+            return False
 
-        # Message
-        message_label = ttk.Label(main_frame, text=message, font=("Segoe UI", 10))
-        message_label.pack(pady=(0, 10))
+    def handle_original_file(self, file_name, output_file_path, settings):
+        """Handle the original file based on the file action setting."""
+        action = settings["file_action"]
+        try:
+            if action == FILE_ACTION_MOVE:
+                # Move to subfolder - always in source directory, not output directory
+                # Find the source directory by looking through files_to_process
+                source_dir = None
+                for file_path in settings.get("files", []):
+                    if os.path.basename(file_path) == file_name:
+                        source_dir = os.path.dirname(file_path)
+                        break
 
-        # Elapsed time (if available)
-        if elapsed_time:
-            time_label = ttk.Label(main_frame, text=f"Elapsed time: {elapsed_time}", font=("Segoe UI", 9, "italic"), foreground="gray")
-            time_label.pack(pady=(0, 20))
+                if source_dir:
+                    original_ext = os.path.splitext(file_name)[1].upper()[1:]
+                    subfolder = os.path.join(source_dir, "Remuxed")
+                    os.makedirs(subfolder, exist_ok=True)
+                    shutil.move(os.path.join(source_dir, file_name), os.path.join(subfolder, file_name))
+                    if self.debug_mode:
+                        self.process_queue.put(("LOG", f"   -> [DEBUG] Original moved to 'Remuxed' folder"))
+                else:
+                    self.process_queue.put(("LOG", f"   -> WARNING: Could not find source directory for {file_name}"))
+            elif action == FILE_ACTION_DELETE:
+                # Find the source directory for deletion
+                source_dir = None
+                for file_path in settings.get("files", []):
+                    if os.path.basename(file_path) == file_name:
+                        source_dir = os.path.dirname(file_path)
+                        break
 
-        def open_directory_and_close():
-            dialog.destroy()
-            self.open_output_directory()
-            self.reset_ui_after_processing()
+                if source_dir:
+                    os.remove(os.path.join(source_dir, file_name))
+                    if self.debug_mode:
+                        self.process_queue.put(("LOG", f"   -> [DEBUG] Original file deleted"))
+                else:
+                    self.process_queue.put(("LOG", f"   -> WARNING: Could not find source directory for {file_name}"))
+        except Exception as e:
+            self.process_queue.put(("LOG", f"   -> WARNING: Failed to handle original file: {str(e)}"))
 
-        def close_only():
-            dialog.destroy()
-            self.reset_ui_after_processing()
+    def get_audio_track_info(self, file_path):
+        """Get information about audio tracks in the file."""
+        try:
+            command = [self.ffprobe_path, "-v", "error", "-select_streams", "a",
+                       "-show_entries", "stream=index,codec_name,channels,language",
+                       "-of", "csv=p=0", file_path]
+
+            result = subprocess.run(command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+
+            if result.returncode == 0:
+                tracks = []
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        parts = line.split(',')
+                        if len(parts) >= 3:
+                            index, codec, channels = parts[0], parts[1], parts[2]
+                            language = parts[3] if len(parts) > 3 and parts[3] else "und"
+                            tracks.append({
+                                'index': int(index),
+                                'codec': codec,
+                                'channels': channels,
+                                'language': language
+                            })
+                return tracks
+            else:
+                self.process_queue.put(("LOG", f"Warning: ffprobe failed for audio tracks in {os.path.basename(file_path)}"))
+                return []
+        except subprocess.TimeoutExpired:
+            self.process_queue.put(("LOG", f"Warning: Timeout getting audio tracks for {os.path.basename(file_path)}"))
+            return []
+        except Exception as e:
+            self.process_queue.put(("LOG", f"Warning: Error getting audio tracks for {os.path.basename(file_path)}: {str(e)}"))
+            return []
+
+    def validate_video_file(self, file_path):
+        """Validate that a file is a readable video file using ffprobe."""
+        try:
+            command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
+                       "-show_entries", "stream=codec_name", "-of",
+                       "default=noprint_wrappers=1:nokey=1", file_path]
+
+            result = subprocess.run(command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            return result.returncode == 0 and result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            self.process_queue.put(("LOG", f"Warning: Timeout validating {os.path.basename(file_path)}"))
+            return False
+        except Exception as e:
+            self.process_queue.put(("LOG", f"Warning: Error validating {os.path.basename(file_path)}: {str(e)}"))
+            return False
+
+    def get_video_duration(self, file_path):
+        """Get video duration in seconds."""
+        try:
+            command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
+                       "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+
+            result = subprocess.run(command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            if result.returncode == 0:
+                return float(result.stdout.strip())
+            else:
+                self.process_queue.put(("LOG", f"Warning: ffprobe failed to get duration for {os.path.basename(file_path)}"))
+                return 0
+        except subprocess.TimeoutExpired:
+            self.process_queue.put(("LOG", f"Warning: Timeout getting duration for {os.path.basename(file_path)}"))
+            return 0
+        except ValueError:
+            self.process_queue.put(("LOG", f"Warning: Invalid duration format for {os.path.basename(file_path)}"))
+            return 0
+        except Exception as e:
+            self.process_queue.put(("LOG", f"Warning: Error getting duration for {os.path.basename(file_path)}: {str(e)}"))
+            return 0
+
+    def build_ffmpeg_command(self, video_file_path, settings):
+        """Build FFmpeg command for remuxing a video file."""
+        file_name = os.path.basename(video_file_path)
+        file_name_no_ext = os.path.splitext(file_name)[0]
+        output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
+        output_file_path = os.path.join(output_dir_final, file_name_no_ext + settings["output_format"])
+
+        command = [self.ffmpeg_path, "-y", "-i", video_file_path, "-c:v", "copy"]
+
+        # Handle audio mapping
+        if settings["include_audio"]:
+            # Map all audio streams (simplified behavior)
+            command.extend(["-map", "0:v", "-map", "0:a", "-c:a", "copy"])
+        else:
+            command.extend(["-an"])
+
+        # Handle timescale options
+        if settings["use_timescale"]:
+            timescale = None
+            scan_result = settings["scan_results"].get(video_file_path, {})
+            timescale = scan_result.get('fps')
+            if not timescale:
+                self.process_queue.put(("LOG", f"Warning: No FPS found for {file_name}, timescale option skipped."))
+
+            if timescale:
+                try:
+                    float(timescale)
+                    command.extend(["-video_track_timescale", str(timescale)])
+                except ValueError:
+                    self.process_queue.put(("LOG", f"Warning: Invalid timescale '{timescale}', skipping option."))
+
+        command.append(output_file_path)
+
+        return command, output_file_path
+
+    def show_preview_dialog(self, auto_start=False):
+        """Show preview of commands that would be executed."""
+        if not self.files_to_process:
+            QMessageBox.warning(self, "No Files", "Please select files first.")
+            return
+
+        if not self.is_scanned:
+            QMessageBox.warning(self, "Not Scanned", "Please scan files first before previewing commands.")
+            return
+
+        self.preview_window = QDialog(self)
+        self.preview_window.setWindowTitle("Command Preview")
+        self.preview_window.setModal(True)
+        self.preview_window.resize(800, 500)
+
+        layout = QVBoxLayout(self.preview_window)
+
+        # Info label
+        info_label = QLabel(f"Preview of commands for {len(self.files_to_process)} files:")
+        layout.addWidget(info_label)
+
+        # Text widget with scrollbar
+        text_widget = QTextEdit()
+        text_widget.setFont(QFont("Consolas", 9))  # Better monospace font
+        text_widget.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        layout.addWidget(text_widget)
+
+        # Generate and display commands
+        commands = self.generate_preview_commands()
+        for i, (input_file, command) in enumerate(commands, 1):
+            filename = os.path.basename(input_file)
+            text_widget.append(f"{i}. {filename}")
+            text_widget.append(" ".join(command))
+            text_widget.append("")
 
         # Button container frame
-        button_container = ttk.Frame(main_frame)
-        button_container.pack(pady=(20, 0))
+        button_container = QHBoxLayout()
+        layout.addLayout(button_container)
 
-        # Center the buttons horizontally
-        button_container.grid_columnconfigure(0, weight=1)
-        button_container.grid_columnconfigure(2, weight=1)
+        button_container.addStretch()
 
-        # Open Directory button
-        open_btn = ttk.Button(button_container, text="Open Location", command=open_directory_and_close)
-        open_btn.grid(row=0, column=1, padx=(0, 10))
+        # Start Remuxing button
+        if auto_start:
+            # Countdown variables
+            self.countdown_seconds = 10
+            self.countdown_active = True
+
+            start_btn = QPushButton(f"Start Remuxing (Auto-start in {self.countdown_seconds}s)")
+            start_btn.clicked.connect(lambda: self.start_remuxing_from_preview(self.preview_window))
+            button_container.addWidget(start_btn)
+
+            # Countdown timer function
+            def update_countdown():
+                if not self.countdown_active or not self.preview_window.isVisible():
+                    return
+
+                self.countdown_seconds -= 1
+                if self.countdown_seconds > 0:
+                    start_btn.setText(f"Start Remuxing (Auto-start in {self.countdown_seconds}s)")
+                    # Schedule next update in 1 second
+                    QTimer.singleShot(1000, update_countdown)
+                else:
+                    start_btn.setText("Starting Remux...")
+                    # Auto-start remuxing
+                    if self.preview_window.isVisible():
+                        self.start_remuxing_from_preview(self.preview_window)
+
+            # Start countdown timer
+            QTimer.singleShot(1000, update_countdown)  # Start updating after 1 second
+        else:
+            start_btn = QPushButton("Start Remuxing")
+            start_btn.clicked.connect(lambda: self.start_remuxing_from_preview(self.preview_window))
+            button_container.addWidget(start_btn)
 
         # Close button
-        close_btn = ttk.Button(button_container, text="Close", command=close_only)
-        close_btn.grid(row=0, column=2)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(lambda: [setattr(self, 'countdown_active', False), self.preview_window.reject()])
+        button_container.addWidget(close_btn)
 
-        # Set focus on close button by default
-        close_btn.focus()
+        # ADD THIS LINE to execute the dialog and return its result
+        return self.preview_window.exec_()
 
-        # Handle Enter key
-        dialog.bind('<Return>', lambda e: close_only())
-        dialog.bind('<Escape>', lambda e: close_only())
+    def generate_preview_commands(self):
+        """Generate preview of all FFmpeg commands."""
+        commands = []
+        settings = {
+            "output_dir": self.output_directory,
+            "include_audio": self.include_audio,
+            "use_timescale": self.use_timescale_option,
+            "scan_results": self.scan_results,
+        }
 
-        # Handle window close button (X)
-        def on_dialog_close():
-            dialog.destroy()
-            self.reset_ui_after_processing()
+        for video_file_path in self.files_to_process:
+            file_name = os.path.basename(video_file_path)
+            file_name_no_ext = os.path.splitext(file_name)[0]
+            output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
+            output_file_path = os.path.join(output_dir_final, file_name_no_ext + self.output_format)
 
-        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+            command = [self.ffmpeg_path, "-y", "-i", video_file_path, "-c:v", "copy"]
+
+            # Handle audio mapping
+            if settings["include_audio"]:
+                # Map all audio streams (simplified behavior)
+                command.extend(["-map", "0:v", "-map", "0:a", "-c:a", "copy"])
+            else:
+                command.extend(["-an"])
+
+            if settings["use_timescale"]:
+                timescale = None
+                scan_result = settings["scan_results"].get(video_file_path, {})
+                timescale = scan_result.get('fps')
+                if timescale:
+                    try:
+                        float(timescale)
+                        command.extend(["-video_track_timescale", str(timescale)])
+                    except ValueError:
+                        pass
+
+            command.append(output_file_path)
+            commands.append((video_file_path, command))
+
+        return commands
 
     def start_remuxing_from_preview(self, preview_window):
-        """Set flag to start remuxing and close the preview dialog."""
-        self.preview_start_remuxing = True
+        """Closes the preview dialog and signals acceptance."""
         self.countdown_active = False  # Stop countdown if user manually clicked
-
-        # Handle window close button (X) - this is a fallback in case the window
-        # close button is clicked while the Start Remuxing button is being processed
-        def on_dialog_close():
-            self.countdown_active = False  # Stop countdown
-            preview_window.destroy()
-            # Don't reset UI here - let the calling method handle it
-
-        preview_window.protocol("WM_DELETE_WINDOW", on_dialog_close)
-
-        # Close the preview window
-        preview_window.destroy()
-
-    def open_output_directory(self):
-        """Open the output directory in the system file explorer."""
-        try:
-            output_dir = self.output_directory
-            if not output_dir:
-                # If no output directory specified, use the source directory
-                if self.files_to_process:
-                    output_dir = os.path.dirname(self.files_to_process[0])
-
-            if output_dir and os.path.exists(output_dir):
-                if sys.platform == "win32":
-                    os.startfile(output_dir)
-                elif sys.platform == "darwin":  # macOS
-                    subprocess.run(["open", output_dir])
-                else:  # Linux and other Unix-like systems
-                    subprocess.run(["xdg-open", output_dir])
-                self.process_queue.put(("LOG", f"Opened output directory: {output_dir}"))
-            else:
-                self.process_queue.put(("LOG", "Warning: Output directory not found or not specified"))
-        except Exception as e:
-            self.process_queue.put(("LOG", f"Warning: Failed to open output directory: {str(e)}"))
+        preview_window.accept() # This closes the dialog and returns an "Accepted" result
 
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
-# Entry point for running the application as a standalone script
 if __name__ == "__main__":
-   app = RemuxApp()
-   app.mainloop()
+    # print("[DEBUG] Starting application...")
+    # print(f"[DEBUG] Script arguments: {sys.argv}")
+    # print(f"[DEBUG] Current working directory: {os.getcwd()}")
+
+    # Check if QApplication already exists
+    app = QApplication.instance()
+    if app is None:
+        # print("[DEBUG] Creating new QApplication instance...")
+        app = QApplication(sys.argv)
+    else:
+        pass
+        # print("[DEBUG] Using existing QApplication instance...")
+
+    # print(f"[DEBUG] QApplication instance: {app}")
+    # print(f"[DEBUG] Number of top-level windows before creating main window: {len(app.topLevelWindows())}")
+
+    window = RemuxApp()
+    # print(f"[DEBUG] Main window created: {window}")
+    # print(f"[DEBUG] Number of top-level windows after creating main window: {len(app.topLevelWindows())}")
+
+    window.show()
+    # print(f"[DEBUG] Main window shown, visible: {window.isVisible()}")
+    # print(f"[DEBUG] Final number of top-level windows: {len(app.topLevelWindows())}")
+
+    sys.exit(app.exec_())

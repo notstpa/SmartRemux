@@ -15,6 +15,7 @@ if %errorlevel% neq 0 (
 rem Check if required files exist
 if not exist "video_remuxer_gui.py" (
     echo ERROR: video_remuxer_gui.py not found in current directory.
+    echo Note: The Tkinter version has been renamed from video_remuxer_gui.py
     pause
     exit /b 1
 )
@@ -49,13 +50,13 @@ if %errorlevel% neq 0 (
 )
 
 rem Clean up old files
-if exist "Remuxer V2.0.exe" del "Remuxer V2.0.exe"
+if exist "dist\Remuxer V2.1.exe" del "dist\Remuxer V2.1.exe"
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 
 rem Build the executable
 echo Building executable...
-set "PYINSTALLER_CMD=py -m PyInstaller --onefile --windowed --icon "ICOtrans.ico" --add-data "ICOtrans.ico;." --name "Remuxer V2.0" video_remuxer_gui.py"
+set "PYINSTALLER_CMD=py -m PyInstaller --onefile --windowed --icon "ICOtrans.ico" --add-data "ICOtrans.ico;." --name "Remuxer V2.1" video_remuxer_gui.py"
 
 if %HAS_FFMPEG%==1 (
     set "PYINSTALLER_CMD=!PYINSTALLER_CMD! --add-data "ffmpeg.exe;.""
@@ -77,12 +78,12 @@ if %errorlevel% neq 0 (
 rem Clean up build folder (keep dist folder with executable)
 if exist "build" rmdir /s /q "build"
 
-if exist "dist\Remuxer V2.0.exe" (
+if exist "dist\Remuxer V2.1.exe" (
     echo.
-    echo SUCCESS: Remuxer V2.0.exe created in dist folder!
-    for %%A in ("dist\Remuxer V2.0.exe") do echo Size: %%~zA bytes
+    echo SUCCESS: Remuxer V2.1.exe created in dist folder!
+    for %%A in ("dist\Remuxer V2.1.exe") do echo Size: %%~zA bytes
     echo.
-    echo You can find your executable at: dist\Remuxer V2.0.exe
+    echo You can find your executable at: dist\Remuxer V2.1.exe
 ) else (
     echo ERROR: Executable not found!
     pause
