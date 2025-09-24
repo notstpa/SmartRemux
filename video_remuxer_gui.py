@@ -76,6 +76,9 @@ class RemuxApp(QMainWindow):
         # Center the window
         self.center_window()
 
+        # Enable drag and drop for the main window
+        self.setAcceptDrops(True)
+
         # DEBUG: Log main window creation
         # print(f"[DEBUG] Main window created: {self.windowTitle()} at position ({self.x()}, {self.y()}) size ({self.width()}, {self.height()})")
 
@@ -1722,6 +1725,47 @@ class RemuxApp(QMainWindow):
                 self.process_queue.put(("LOG", "Warning: Output directory not found or not specified"))
         except Exception as e:
             self.process_queue.put(("LOG", f"Warning: Failed to open output directory: {str(e)}"))
+
+    # =============================================================================
+    # DRAG AND DROP HANDLERS
+    # =============================================================================
+    def dragEnterEvent(self, event):
+        """Handle drag enter events to accept file drops."""
+        # Check if the event contains URLs (file paths)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()  # Accept the drop
+
+    def dropEvent(self, event):
+        """Handle drop events to process dropped files."""
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+
+        # Filter for local files with supported extensions
+        supported_extensions = [ext.lower() for ext in self.supported_formats['input']]
+        dropped_files = []
+        for url in urls:
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                if any(file_path.lower().endswith(ext) for ext in supported_extensions):
+                    dropped_files.append(file_path)
+
+        if not dropped_files:
+            self.log_text.append("Warning: No supported files were dropped.")
+            return
+
+        # Update the list of files to process
+        self.files_to_process = dropped_files
+
+        # DEBUG: Add logging to track file selection (only in debug mode)
+        if self.debug_mode:
+            self.log_text.append(f"[DEBUG] Dropped {len(self.files_to_process)} supported files:")
+            for file in self.files_to_process:
+                self.log_text.append(f"[DEBUG]   {os.path.basename(file)}")
+
+        # Update UI and reset state
+        self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
+        self.reset_scan_state()
 
     # =============================================================================
     # WORKER THREADS
