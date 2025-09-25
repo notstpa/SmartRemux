@@ -16,7 +16,7 @@ echo Building executables for version %VERSION%...
 echo.
 
 rem Check for Python
-py --version >nul 2>&1
+python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ERROR: Python is not installed or not in PATH.
     pause
@@ -24,12 +24,24 @@ if %errorlevel% neq 0 (
 )
 
 rem Check for PyInstaller
-py -m pip show pyinstaller >nul 2>&1
+python -m pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
-    py -m pip install pyinstaller
+    python -m pip install pyinstaller
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install PyInstaller.
+        pause
+        exit /b 1
+    )
+)
+
+rem Check for PyQt5
+python -m pip show PyQt5 >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Installing PyQt5...
+    python -m pip install PyQt5
+    if %errorlevel% neq 0 (
+        echo ERROR: Failed to install PyQt5.
         pause
         exit /b 1
     )
@@ -47,7 +59,7 @@ echo.
 echo Building %APP_NAME_FULL%...
 
 set "PYINSTALLER_APP_NAME=%APP_NAME_FULL%"
-py -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
+python -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
 
 if %errorlevel% neq 0 (
     echo.
@@ -71,7 +83,7 @@ if exist "ffmpeg.exe" ren "ffmpeg.exe" "ffmpeg.bak"
 if exist "ffprobe.exe" ren "ffprobe.exe" "ffprobe.bak"
 
 set "PYINSTALLER_APP_NAME=%APP_NAME_LITE%"
-py -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
+python -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
 
 rem Rename the files back immediately after the build.
 if exist "ffmpeg.bak" ren "ffmpeg.bak" "ffmpeg.exe"
