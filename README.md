@@ -5,7 +5,7 @@ A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preservin
 ![Stpa Remuxer Screenshot](https://i.imgur.com/AFLqXYZ.png)
 ![Stpa Remuxer Screenshot](https://i.imgur.com/mwU5gKO.png)
 
-[Download App](https://github.com/notstpa/stpa-remuxer/releases/tag/25.09.23)
+[Download App](https://github.com/notstpa/stpa-remuxer/releases)
 
 Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank">Buy me a coffee</a>
 
