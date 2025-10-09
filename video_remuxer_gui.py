@@ -66,7 +66,7 @@ class RemuxApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Stpa Remuxer v2.1")
+        self.setWindowTitle("Stpa Remuxer v2.1.1")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         # Allow vertical resizing by not constraining maximum height
