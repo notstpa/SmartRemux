@@ -1,11 +1,11 @@
 # Remuxer v2.1.1
 
+[Download Here](https://github.com/notstpa/stpa-remuxer/releases)
+
 A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preserving quality. It fixes VFR issues for editing compatibility with DaVinci Resolve and Adobe Premiere Pro.
 
 ![Stpa Remuxer Screenshot](https://i.imgur.com/AFLqXYZ.png)
 ![Stpa Remuxer Screenshot](https://i.imgur.com/mwU5gKO.png)
-
-[Download App](https://github.com/notstpa/stpa-remuxer/releases)
 
 Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank">Buy me a coffee</a>
 
