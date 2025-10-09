@@ -755,12 +755,6 @@ class RemuxApp(QMainWindow):
         # Button frame for log controls
         log_button_layout = QHBoxLayout()
         log_layout.addLayout(log_button_layout)
- 
-        # Debug toggle checkbox
-        self.debug_checkbox = QCheckBox("Debug Info")
-        self.debug_checkbox.setChecked(self.debug_mode)
-        self.debug_checkbox.stateChanged.connect(self.toggle_debug_mode)
-        log_button_layout.addWidget(self.debug_checkbox)
 
         log_button_layout.addStretch(1)  # Add stretchable space to push buttons to the right
 
@@ -786,10 +780,13 @@ class RemuxApp(QMainWindow):
         # Set log text styling for better readability
         self.log_text.setStyleSheet("""
             QTextEdit {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
+                background-color: #ffffff; /* white */
+                color: #000000;            /* black text */
+                border: 1px solid #dee2e6; /* light border */
+                border-radius: 6px;
                 padding: 8px;
+                selection-background-color: #0078D7; /* Windows blue highlight */
+                selection-color: #ffffff;
             }
         """)
 
@@ -798,15 +795,6 @@ class RemuxApp(QMainWindow):
     def clear_log(self):
         """Clear the log output."""
         self.log_text.clear()
-
-    def toggle_debug_mode(self, state):
-        """Toggle debug mode on/off."""
-        self.debug_mode = (state == Qt.Checked)
-        if self.debug_mode:
-            self.log_text.append("[DEBUG] Debug mode enabled - detailed logging will be shown")
-        else:
-            pass
-            # self.log_text.append("[DEBUG] Debug mode disabled - only normal messages will be shown")
 
 
     def export_log_to_file(self):
@@ -1174,10 +1162,29 @@ class RemuxApp(QMainWindow):
 
                 # --- Remux Messages ---
                 elif msg_type == "LOG":
+                    # Lightweight log mode: filter noisy/verbose lines unless debug is enabled
+                    message = str(data)
+
+                    if not self.debug_mode:
+                        m = message.strip()
+                        # Drop debug/verbose patterns
+                        if (
+                            m.startswith("[DEBUG]") or
+                            m.startswith("Detected Frame Rates") or
+                            (m.startswith("  - ") and not m.startswith("Frame rates:")) or
+                            (m.startswith("- ") and not m.startswith("Frame rates:")) or
+                            m.startswith("• ") and False or
+                            m.startswith("   -> [DEBUG]") or
+                            m.startswith("   -> Success") or
+                            (len(m) > 0 and set(m) == {"="})
+                        ):
+                            # Skip adding this line in simple mode
+                            return
+
                     # Format log messages with timestamps for better readability
                     from datetime import datetime
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    formatted_message = f"[{timestamp}] {data}"
+                    formatted_message = f"[{timestamp}] {message}"
                     self.log_text.append(formatted_message)
                     # Scroll to bottom
                     scrollbar = self.log_text.verticalScrollBar()
@@ -2106,10 +2113,28 @@ class RemuxApp(QMainWindow):
                     fps_summary[fps] = fps_summary.get(fps, 0) + 1
 
         if fps_summary:
-            self.process_queue.put(("LOG", "Detected Frame Rates:"))
-            # Sort by FPS value (as float) for a clean, ordered list
-            for fps, count in sorted(fps_summary.items(), key=lambda item: float(item[0])):
+            # Mark verbose listing as debug
+            self.process_queue.put(("LOG", "[DEBUG] Detected Frame Rates:"))
+            for fps, count in fps_summary.items():
                 self.process_queue.put(("LOG", f"  - {fps} FPS: {count} file(s)"))
+
+        # Add a concise, user-facing scan summary in normal mode
+        try:
+            total_count = len(results)
+            valid_count = sum(1 for r in results.values() if r.get('valid', True))
+            invalid_count = total_count - valid_count
+            if self.validate_files:
+                self.process_queue.put(("LOG", f"Scanned {total_count} files: {valid_count} ready, {invalid_count} invalid"))
+            else:
+                self.process_queue.put(("LOG", f"Scanned {total_count} files"))
+
+            if fps_summary:
+                # Cleaner multi-line frame rate summary
+                self.process_queue.put(("LOG", "Frame rates:"))
+                for fps, count in sorted(fps_summary.items(), key=lambda item: float(item[0])):
+                    self.process_queue.put(("LOG", f"• {fps} ({count})"))
+        except Exception:
+            pass
         # --- END ADDITION ---
 
         self.process_queue.put(('SCAN_COMPLETE', {'results': results}))
@@ -2423,6 +2448,10 @@ class RemuxApp(QMainWindow):
             with self.process_lock:
                 self.current_process = process
 
+            # Throttle FFmpeg progress log emission to avoid UI flooding
+            last_ffmpeg_emit = 0.0
+            emit_interval = 0.5 if not self.debug_mode else 0.1
+
             # Read output line by line to prevent freezing
             while True:
                 # Check for skip - immediate return if skip requested
@@ -2515,9 +2544,12 @@ class RemuxApp(QMainWindow):
                     # Log FFmpeg output with detailed information but less frequently
                     stripped_output = output.strip()
                     if stripped_output:
-                        # Log detailed progress information but reduce frequency
-                        if self.debug_mode and any(keyword in stripped_output for keyword in ['time=', 'frame=', 'size=', 'fps=', 'bitrate=']):
-                            self.process_queue.put(("LOG", f"   [FFMPEG] {stripped_output}"))
+                        # Show FFmpeg progress stats by default with a small throttle
+                        if any(keyword in stripped_output for keyword in ['time=', 'frame=', 'size=', 'fps=', 'bitrate=', 'speed=']):
+                            now = time.time()
+                            if now - last_ffmpeg_emit >= emit_interval:
+                                self.process_queue.put(("LOG", f"   [FFMPEG] {stripped_output}"))
+                                last_ffmpeg_emit = now
 
             # Wait for process to complete
             process.wait()
