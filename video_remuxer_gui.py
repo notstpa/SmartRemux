@@ -37,7 +37,7 @@ from PyQt5.QtGui import (
 # CONSTANTS AND CONFIGURATION
 # =============================================================================
 WINDOW_WIDTH = 575
-WINDOW_HEIGHT = 600
+WINDOW_HEIGHT = 475
 PROGRESS_UPDATE_INTERVAL = 100  # milliseconds
 MAX_QUEUE_MESSAGES_PER_UPDATE = 10  # Maximum messages to process per UI update
 FFPROBE_TIMEOUT = 5   # seconds (reduced for faster failure detection)
@@ -69,6 +69,7 @@ class RemuxApp(QMainWindow):
         self.setWindowTitle("Stpa Remuxer v2.1")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        # Allow vertical resizing by not constraining maximum height
 
         # Set custom window icon
         self.set_window_icon("ICOtrans.ico")
@@ -78,6 +79,26 @@ class RemuxApp(QMainWindow):
 
         # Enable drag and drop for the main window
         self.setAcceptDrops(True)
+
+        # Minimal bottom scanning status in the status bar
+        self.scan_status_label = QLabel("")
+        self.scan_status_bar = QProgressBar()
+        self.scan_status_bar.setRange(0, 100)
+        self.scan_status_bar.setTextVisible(False)
+        self.scan_status_bar.setStyleSheet("""
+            QProgressBar { background: #e5e7eb; border: 0; height: 6px; border-radius: 3px; }
+            QProgressBar::chunk { background-color: #0078D7; border-radius: 3px; }
+        """)
+        self.scan_status_bar.hide()
+        try:
+            sb = self.statusBar()
+            sb.setStyleSheet("QStatusBar{background:#fafafa;border-top:1px solid #ececec;}")
+            # Hide label by default so the bar can span the width; keep for future if needed
+            self.scan_status_label.hide()
+            sb.addPermanentWidget(self.scan_status_bar, 1)
+        except Exception:
+            # Fallback if status bar isn't available
+            pass
 
         # DEBUG: Log main window creation
         # print(f"[DEBUG] Main window created: {self.windowTitle()} at position ({self.x()}, {self.y()}) size ({self.width()}, {self.height()})")
@@ -118,6 +139,7 @@ class RemuxApp(QMainWindow):
         # --- Statistics ---
         self.processing_start_time = None  # Track when processing starts for elapsed time
         self.scan_start_time = None  # Track when scanning starts for elapsed time
+        self.last_scan_time_str = None # Store the final scan time string
 
         # --- Supported formats ---
         self.supported_formats = {
@@ -127,7 +149,6 @@ class RemuxApp(QMainWindow):
 
         # --- Settings Variables ---
         self.use_timescale_option = True
-        self.auto_start_remux = True
         self.include_audio = True
         self.file_action = FILE_ACTION_KEEP
         self.output_format = ".mp4"
@@ -144,7 +165,7 @@ class RemuxApp(QMainWindow):
         self.create_widgets()
         self.setup_timer()
 
-        # Connect auto-save signals
+        # Connect auto-save signals (skip btn_run and auto_start_checkbox since they no longer exist)
         self.setup_auto_save()
 
     def center_window(self):
@@ -164,7 +185,6 @@ class RemuxApp(QMainWindow):
         """Set up auto-save functionality for settings."""
         # Connect all setting controls to auto-save when changed
         # Checkboxes
-        self.auto_start_checkbox.stateChanged.connect(self.update_auto_start_setting)
         self.audio_checkbox.stateChanged.connect(self.update_checkbox_settings)
         self.timestamp_checkbox.stateChanged.connect(self.update_checkbox_settings)
         self.overwrite_checkbox.stateChanged.connect(self.update_checkbox_settings)
@@ -190,12 +210,8 @@ class RemuxApp(QMainWindow):
         """Auto-save settings when they change."""
         try:
             self.save_settings()
-            # Show brief visual feedback that settings were saved
-            try:
-                self.statusBar().showMessage("Settings saved", 2000)
-            except:
-                # If no status bar, just print to console
-                print("Settings saved")
+            # Settings are saved automatically without user notification
+            # to prevent UI shifting issues with status bar access
         except Exception as e:
             print(f"Failed to auto-save settings: {e}")
 
@@ -236,14 +252,19 @@ class RemuxApp(QMainWindow):
         # --- Source & Output Frame ---
         source_output_group = QGroupBox("Source & Output")
         # ADD THIS STYLESHEET for consistent, compact appearance
+        # Modern stylesheet for a consistent, clean appearance
         source_output_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(source_output_group)
@@ -276,49 +297,78 @@ class RemuxApp(QMainWindow):
         self.btn_clear_output.clicked.connect(self.clear_output_folder)
         source_output_layout.addWidget(self.btn_clear_output, 1, 4)
 
-        # --- Scanning Frame ---
-        self.scan_group = QGroupBox("Step 1: File Preparation")
-        # ADD THIS STYLESHEET for consistent, compact appearance
+        # --- Scanning Frame (Hidden - scanning happens automatically) ---
+        self.scan_group = QGroupBox("Preparing files")
+        # Cleaner, text-first appearance for scanning
         self.scan_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #fafafa;
+                border: 1px solid #ececec;
+                border-radius: 10px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: 600;
+                font-size: 10pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 2px 6px;
             }
         """)
+        # Hide the scan group - scanning will happen automatically in background
+        self.scan_group.hide()
         layout.addWidget(self.scan_group)
 
         scan_layout = QVBoxLayout(self.scan_group)
-        # ADJUST THESE MARGINS to reduce internal padding
-        # Values are (left, top, right, bottom)
-        scan_layout.setContentsMargins(10, 15, 10, 5)
+        scan_layout.setContentsMargins(12, 14, 12, 10)
 
-        self.label_scan_progress = QLabel("Ready to scan.")
+        # Header and subtle caption
+        self.scan_header_label = QLabel("Preparing files")
+        self.scan_header_label.setStyleSheet("""
+            QLabel { font-size: 12pt; font-weight: 600; color: #111827; }
+        """)
+        scan_layout.addWidget(self.scan_header_label)
+
+        self.scan_caption_label = QLabel("Analyzing codecs and durations…")
+        self.scan_caption_label.setStyleSheet("""
+            QLabel { color: #6b7280; font-size: 9pt; }
+        """)
+        scan_layout.addWidget(self.scan_caption_label)
+
+        # Compact progress badge (text-only, no bar)
+        self.label_scan_progress = QLabel("Scanning 0/0")
+        self.label_scan_progress.setStyleSheet("""
+            QLabel {
+                background-color: #eef2ff;
+                color: #1e40af;
+                border: 1px solid #c7d2fe;
+                border-radius: 10px;
+                padding: 6px 10px;
+                margin-top: 4px;
+                width: 100%;
+            }
+        """)
         scan_layout.addWidget(self.label_scan_progress)
 
+        # Keep a hidden progress bar instance if needed later, but not shown
         self.progress_bar_scan = QProgressBar()
-        self.progress_bar_scan.setRange(0, 100)
-        scan_layout.addWidget(self.progress_bar_scan)
-
-        # Timer label for scan elapsed time
-        self.label_scan_timer = QLabel("")
-        self.label_scan_timer.setStyleSheet("font-style: italic; color: gray;")
-        scan_layout.addWidget(self.label_scan_timer)
+        self.progress_bar_scan.hide()
 
         # --- Remuxing Frame ---
-        self.progress_group = QGroupBox("Step 2: Processing Files")
+        self.progress_group = QGroupBox("Remux")
         # ADD THIS STYLESHEET for consistent, compact appearance
+        # Modern stylesheet for a consistent, clean appearance
         self.progress_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(self.progress_group)
@@ -331,14 +381,19 @@ class RemuxApp(QMainWindow):
         # Current Activity Section
         current_activity_group = QGroupBox("Current Activity")
         # ADD THIS STYLESHEET for consistent, compact appearance
+        # Modern stylesheet for a consistent, clean appearance
         current_activity_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         progress_layout.addWidget(current_activity_group)
@@ -349,15 +404,27 @@ class RemuxApp(QMainWindow):
         current_layout.setContentsMargins(10, 15, 10, 5)
 
         self.label_current_file = QLabel("Current file: None")
-        self.label_current_file.setStyleSheet("font-weight: bold;")
         current_layout.addWidget(self.label_current_file)
 
         # Overall progress
-        self.label_total_progress = QLabel("Total Progress: 0/0")
+        self.label_total_progress = QLabel("Total Progress: 0/?")
         progress_layout.addWidget(self.label_total_progress)
 
         self.progress_bar_total = QProgressBar()
         self.progress_bar_total.setRange(0, 100)
+        self.progress_bar_total.setTextVisible(False)
+        self.progress_bar_total.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #c0c0c0;
+                border-radius: 5px;
+                background-color: #e8e8e8;
+                height: 12px;
+            }
+            QProgressBar::chunk {
+                background-color: #0078D7; /* A nice blue */
+                border-radius: 4px;
+            }
+        """)
         progress_layout.addWidget(self.progress_bar_total)
 
         self.label_status = QLabel("Ready")
@@ -395,25 +462,6 @@ class RemuxApp(QMainWindow):
 
         buttons_layout.addStretch(1)  # Add stretchable space on the right
 
-        # --- Control Buttons Frame ---
-        main_buttons_layout = QHBoxLayout()
-        layout.addLayout(main_buttons_layout)
-
-        main_buttons_layout.addStretch(1)  # Add stretchable space on the left
-
-        self.btn_run = QPushButton("Scan Files")
-        self.btn_run.clicked.connect(self.handle_run_click)
-        self.btn_run.setEnabled(False)
-        main_buttons_layout.addWidget(self.btn_run)
-
-        # Auto-start remux checkbox
-        self.auto_start_checkbox = QCheckBox("Auto-start Remux")
-        self.auto_start_checkbox.setChecked(self.auto_start_remux)
-        self.auto_start_checkbox.stateChanged.connect(self.update_auto_start_setting)
-        main_buttons_layout.addWidget(self.auto_start_checkbox)
-
-        main_buttons_layout.addStretch(1)  # Add stretchable space on the right
-
         # ADD THIS LINE AT THE END OF THE LAYOUT
         layout.addStretch(1)
 
@@ -427,14 +475,19 @@ class RemuxApp(QMainWindow):
         # --- Output Format ---
         output_format_group = QGroupBox("Output Format")
         # ADD THIS STYLESHEET to control the box's own margins and title padding
+        # Modern stylesheet for a consistent, clean appearance
         output_format_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(output_format_group)
@@ -457,14 +510,19 @@ class RemuxApp(QMainWindow):
         # --- File Management ---
         file_options_group = QGroupBox("Original File Management")
         # ADD THIS STYLESHEET to control the box's own margins and title padding
+        # Modern stylesheet for a consistent, clean appearance
         file_options_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(file_options_group)
@@ -510,14 +568,19 @@ class RemuxApp(QMainWindow):
         # --- Processing Options ---
         processing_group = QGroupBox("Processing Options")
         # ADD THIS STYLESHEET to control the box's own margins and title padding
+        # Modern stylesheet for a consistent, clean appearance
         processing_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(processing_group)
@@ -569,14 +632,19 @@ class RemuxApp(QMainWindow):
         # --- Advanced Processing Options ---
         advanced_group = QGroupBox("Advanced Processing Options")
         # ADD THIS STYLESHEET to control the box's own margins and title padding
+        # Modern stylesheet for a consistent, clean appearance
         advanced_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(advanced_group)
@@ -645,8 +713,9 @@ class RemuxApp(QMainWindow):
         # Hide Step 2 initially - only show after scanning files
         self.progress_group.hide()
 
-        # ADD THIS LINE AT THE END OF THE LAYOUT
-        layout.addStretch(1)
+        # Center the content vertically by adding stretch at top and bottom
+        layout.insertStretch(0, 1)  # Add stretch at the beginning
+        layout.addStretch(1)        # Keep stretch at the end for balance
 
         # Load saved settings after creating all widgets
         self.load_settings()
@@ -661,14 +730,19 @@ class RemuxApp(QMainWindow):
         log_group = QGroupBox("Log Output")
         log_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # ADD THIS STYLESHEET for consistent, compact appearance
+        # Modern stylesheet for a consistent, clean appearance
         log_group.setStyleSheet("""
             QGroupBox {
-                margin-top: 5px;
+                background-color: #f7f7f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
             }
             QGroupBox::title {
+                font-weight: bold;
+                font-size: 9pt;
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px 0 3px;
+                padding: 0 5px;
             }
         """)
         layout.addWidget(log_group)
@@ -681,7 +755,7 @@ class RemuxApp(QMainWindow):
         # Button frame for log controls
         log_button_layout = QHBoxLayout()
         log_layout.addLayout(log_button_layout)
-
+ 
         # Debug toggle checkbox
         self.debug_checkbox = QCheckBox("Debug Info")
         self.debug_checkbox.setChecked(self.debug_mode)
@@ -786,7 +860,6 @@ class RemuxApp(QMainWindow):
         """Save current settings to file."""
         try:
             settings = {
-                "auto_start_remux": self.auto_start_remux,
                 "include_audio": self.include_audio,
                 "file_action": self.file_action,
                 "output_format": self.output_format,
@@ -812,9 +885,6 @@ class RemuxApp(QMainWindow):
                     settings = json.load(f)
 
                 # Apply loaded settings
-                if "auto_start_remux" in settings:
-                    self.auto_start_remux = settings["auto_start_remux"]
-                    self.auto_start_checkbox.setChecked(self.auto_start_remux)
                 if "include_audio" in settings:
                     self.include_audio = settings["include_audio"]
                     self.audio_checkbox.setChecked(self.include_audio)
@@ -852,8 +922,6 @@ class RemuxApp(QMainWindow):
         """Restore all settings to their default values."""
         try:
             # Reset all settings to defaults
-            self.auto_start_remux = True
-            self.auto_start_checkbox.setChecked(True)
             self.include_audio = True
             self.audio_checkbox.setChecked(True)
             self.file_action = FILE_ACTION_KEEP
@@ -1025,21 +1093,20 @@ class RemuxApp(QMainWindow):
                 message = self.process_queue.get_nowait()
                 msg_type, data = message
 
-                # --- Scan Messages ---
-                if msg_type == "SCAN_PROGRESS":
-                    self.progress_bar_scan.setValue(int(data['percent']))
-                    self.label_scan_progress.setText(f"Scanning: {data['current']}/{data['total']}")
+                # --- Skip Button Reset Message ---
+                if msg_type == "SKIP_BUTTON_RESET":
+                    self.btn_skip.setEnabled(True)
+                    self.btn_skip.setText("Skip Current")
 
-                    # Update scan timer if scanning is in progress
-                    if self.scan_start_time:
-                        elapsed_seconds = int(time.time() - self.scan_start_time)
-                        hours, remainder = divmod(elapsed_seconds, 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        if hours > 0:
-                            timer_text = f"Elapsed: {hours:02d}:{minutes:02d}:{seconds:02d}"
-                        else:
-                            timer_text = f"Elapsed: {minutes:02d}:{seconds:02d}"
-                        self.label_scan_timer.setText(timer_text)
+                # --- Scan Messages ---
+                elif msg_type == "SCAN_PROGRESS":
+                    # Drive slim bottom bar; keep panel out of the way
+                    try:
+                        self.scan_status_bar.setValue(int(data['percent']))
+                        if not self.scan_status_bar.isVisible():
+                            self.scan_status_bar.show()
+                    except Exception:
+                        pass
 
                 elif msg_type == "SCAN_COMPLETE":
                     self.scan_results = data['results']
@@ -1059,42 +1126,44 @@ class RemuxApp(QMainWindow):
                         hours, remainder = divmod(elapsed_seconds, 3600)
                         minutes, seconds = divmod(remainder, 60)
                         if hours > 0:
-                            final_elapsed_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                            final_elapsed_time = f"{hours}h {minutes}m {seconds}s"
                         else:
-                            final_elapsed_time = f"{minutes:02d}:{seconds:02d}"
+                            final_elapsed_time = f"{minutes}m {seconds}s"
                         self.scan_start_time = None  # Reset timer
+                        self.last_scan_time_str = final_elapsed_time # Store for completion dialog
 
-                    # Update Step 1 with scan results and hide progress bar
+                    # Update scan progress label
                     if valid_files == total_files:
                         self.label_scan_progress.setText(f"✓ {valid_files}/{total_files} files ready to remux")
                     else:
                         self.label_scan_progress.setText(f"⚠ {valid_files}/{total_files} files ready to remux")
 
-                    # Show final elapsed time under the files ready message
-                    if final_elapsed_time:
-                        self.label_scan_timer.setText(f"Scan completed in {final_elapsed_time}")
+                    # Hide scan interface after scanning completes and hide slim bar
+                    self.scan_group.hide()
+                    try:
+                        self.scan_status_bar.hide()
+                    except Exception:
+                        pass
 
-                    # Hide progress bar but keep the frame visible with results
-                    self.progress_bar_scan.hide()
-
-                    # Show Step 2 frame after scan is complete
+                    # Show remux interface after scanning completes
                     self.progress_group.show()
+                    self.progress_group.setTitle("Remux")
 
-                    # Update Step 2 frame title to show current step
-                    self.progress_group.setTitle("Step 2: Processing Files")
-
-                    # Control buttons are already created, just enable Start Remux button
-                    self.btn_cancel.setEnabled(True)
+                    # Enable Start Remux button
                     self.btn_start_remux.setEnabled(True)
-                    self.btn_start_remux.show()  # Make sure Start Remux button is visible
+                    self.btn_start_remux.show()
 
-                    # Auto-start remuxing if option was enabled
-                    if self.auto_start_remux:
-                        # Start remuxing after 1 second delay
-                        QTimer.singleShot(1000, self.start_remux_thread_auto)
+                    # Initialize remux interface with correct total file count
+                    self.label_total_progress.setText(f"Total Progress: 0/{total_files}")
+                    self.label_current_file.setText("Current file: None")
+                    self.label_status.setText("Ready")
+                    self.progress_bar_total.setValue(0)
 
-                    # Hide Scan Files button
-                    self.btn_run.hide()
+                    # Enable cancel button for safety
+                    self.btn_cancel.setEnabled(True)
+
+                    # Auto-start remuxing is now automatic
+
                     self.log_text.append("Scan complete. Ready to remux.")
 
                     # Re-enable source and output buttons after scan completes
@@ -1141,9 +1210,6 @@ class RemuxApp(QMainWindow):
 
                     final_msg = f"Finished! Remuxed: {data['remuxed']}, Skipped: {data['skipped']}"
 
-                    # Update Step 2 frame title to show completion
-                    self.progress_group.setTitle("Step 2: Processing Complete")
-
                     # Update the total progress label to show final count in same style as scan results
                     total_processed = data['remuxed'] + data['skipped']
                     total_files = len(self.files_to_process)
@@ -1158,7 +1224,7 @@ class RemuxApp(QMainWindow):
 
                     # The UI will be reset after the completion dialog is closed.
                     self.log_text.append("Remux process completed successfully for all files.")
-                    self.show_completion_dialog(final_msg, data, elapsed_time)
+                    self.show_completion_dialog(final_msg, data, elapsed_time, self.last_scan_time_str)
 
         except queue.Empty:
             pass
@@ -1166,48 +1232,61 @@ class RemuxApp(QMainWindow):
     # =============================================================================
     # UI STATE MANAGEMENT
     # =============================================================================
+    def start_automatic_scan(self):
+        """Start automatic scanning in background and show scan interface."""
+        if not self.files_to_process:
+            return
+
+        # Keep scan panel hidden; show slim bottom progress bar
+        try:
+            self.scan_status_bar.setValue(0)
+            self.scan_status_bar.show()
+        except Exception:
+            pass
+
+        # Hide the remux interface until scanning is complete
+        self.progress_group.hide()
+
+        # Auto-start functionality is now automatic
+
+        # Disable source and output buttons during scanning
+        self.btn_browse_folder.setEnabled(False)
+        self.btn_browse_files.setEnabled(False)
+        self.btn_browse_output.setEnabled(False)
+        self.btn_clear_output.setEnabled(False)
+
+        # Start the actual scanning in background
+        self.start_scan_thread()
+
     def reset_scan_state(self):
         """Reset the application to a pre-scan state when new files are selected."""
         self.is_scanned = False
         self.scan_results = {}
         self.scan_start_time = None  # Reset scan timer
+        self.last_scan_time_str = None # Reset scan time string
 
         # Hide Step 2 frame and show Step 1 frame when resetting scan state
         self.progress_group.hide()
 
-        # Show Step 1 frame
-        self.scan_group.show()
-
-        # Show Auto-start Remux checkbox again
-        self.auto_start_checkbox.show()
+        # Keep Step 1 frame hidden
+        self.scan_group.hide()
 
         # Disable control buttons when resetting scan state
         self.btn_pause.setEnabled(False)
         self.btn_skip.setEnabled(False)
         self.btn_cancel.setEnabled(False)
 
-        # Restore Scan Files button and hide Start Remux button
+        # Hide Start Remux button and reset textual indicators
         self.btn_start_remux.hide()
-        self.btn_run.show()
-        # Fix z-order issue: ensure button is visible and on top
-        self.btn_run.raise_()
-        self.btn_run.repaint()
-        # Force layout update to ensure button is properly visible
-        self.remuxer_tab.layout().update()
-
-        self.btn_run.setText("Scan Files")
-        self.btn_run.setEnabled(bool(self.files_to_process))
-        self.progress_bar_scan.setValue(0)
         self.progress_bar_total.setValue(0)
-        self.label_scan_progress.setText("Ready to scan.")
+        self.label_scan_progress.setText("")
+        try:
+            self.scan_status_label.setText("")
+        except Exception:
+            pass
         self.label_total_progress.setText("Total Progress: 0/0")
         self.label_current_file.setText("Current file: None")
 
-        # Clear timer display
-        self.label_scan_timer.setText("")
-
-        # Restore progress bar for next scan
-        self.progress_bar_scan.show()
 
         # Re-enable source and output buttons when resetting scan state
         self.btn_browse_folder.setEnabled(True)
@@ -1221,7 +1300,7 @@ class RemuxApp(QMainWindow):
 
     def is_remuxer_running(self):
         """Check if the remuxer is currently running (scanning or remuxing)."""
-        return self.btn_run.text() in ["Scanning...", "Remuxing..."]
+        return self.btn_start_remux.text() in ["Remuxing..."]
 
     def disable_settings_controls(self):
         """Disable all settings controls when remuxer is running to prevent changes."""
@@ -1241,8 +1320,6 @@ class RemuxApp(QMainWindow):
 
     def reset_ui_after_processing(self):
         """Reset the UI to its initial state after processing is complete."""
-        self.btn_run.setEnabled(True)
-        self.btn_run.setText("Scan Files")
         self.btn_pause.setEnabled(False)
         self.btn_pause.setText("Pause")
         self.btn_skip.setEnabled(False)
@@ -1250,25 +1327,19 @@ class RemuxApp(QMainWindow):
         self.btn_start_remux.setEnabled(False)
         self.btn_start_remux.setText("Start Remux")
 
-        # Restore Scan Files button and hide Start Remux button
+        # Hide Start Remux button
         self.btn_start_remux.hide()
-        self.btn_start_remux.setEnabled(False)
-        self.btn_run.show()
-        # Fix z-order issue: ensure button is visible and on top
-        self.btn_run.raise_()
-        self.btn_run.repaint()
-        # Force layout update to ensure button is properly visible
-        self.remuxer_tab.layout().update()
 
-        # Show Step 1 frame and hide Step 2 frame
-        self.scan_group.show()
+        # Hide both interface frames
+        self.scan_group.hide()
         self.progress_group.hide()
 
-        # Show Auto-start Remux checkbox again
-        self.auto_start_checkbox.show()
+        # Reset scan state
         self.is_scanned = False
+        self.scan_results = {}
         with self.process_lock:
             self.current_process = None
+        # Clear files_to_process after completion
         self.files_to_process = []
         self.label_input_path.setText("No folder or files selected")
         self.parallel_status_label.setText("")
@@ -1312,7 +1383,12 @@ class RemuxApp(QMainWindow):
                     self.log_text.append(f"[DEBUG]   {ext}: {count} files")
 
             self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
-            self.reset_scan_state()
+
+            # Start automatic scanning and show remux interface immediately
+            if self.files_to_process:
+                self.start_automatic_scan()
+            else:
+                self.reset_scan_state()
 
     def browse_input_files(self):
         """Browse for individual input files."""
@@ -1329,7 +1405,12 @@ class RemuxApp(QMainWindow):
                     self.log_text.append(f"[DEBUG]   {os.path.basename(file)}")
 
             self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
-            self.reset_scan_state()
+
+            # Start automatic scanning and show remux interface immediately
+            if self.files_to_process:
+                self.start_automatic_scan()
+            else:
+                self.reset_scan_state()
 
     def browse_output_folder(self):
         """Browse for output directory."""
@@ -1373,9 +1454,6 @@ class RemuxApp(QMainWindow):
         self.selected_output_directory = ""
         self.label_output_path.setText("Same as source")
 
-    def update_auto_start_setting(self, state):
-        """Update the auto_start_remux setting when checkbox is toggled."""
-        self.auto_start_remux = (state == Qt.Checked)
 
     def update_checkbox_settings(self):
         """Update boolean settings from their corresponding checkboxes."""
@@ -1406,16 +1484,6 @@ class RemuxApp(QMainWindow):
         """Update the output_format setting when combo box changes."""
         self.output_format = text
 
-    def handle_run_click(self):
-        """Handles the main button click, directing to scan or remux."""
-        if not self.is_scanned:
-            self.start_scan_thread()
-        else:
-            # If already scanned, show Start Remux button and hide Scan Files button
-            self.btn_start_remux.show()
-            self.btn_start_remux.setEnabled(True)
-            self.btn_run.hide()
-            self.log_text.append("Scan complete. Click 'Start Remux' to begin processing.")
 
     def toggle_pause(self):
         """Toggle pause state."""
@@ -1431,10 +1499,50 @@ class RemuxApp(QMainWindow):
             self.process_queue.put(("STATUS", "Remuxing..."))
 
     def skip_current_file(self):
-        """Skip the currently processing file."""
-        # Set skip event - this will be handled by the processing thread
-        self.skip_event.set()
-        self.process_queue.put(("LOG", "Skipping current file..."))
+        """Skip the currently processing file by moving to next in queue."""
+        with self.process_lock:
+            self.process_queue.put(("LOG", "[SKIP] User requested skip - moving to next file"))
+            
+            # Terminate current process immediately
+            if hasattr(self, 'current_process') and self.current_process:
+                try:
+                    self.current_process.terminate()
+                    self.current_process.kill()  # Force kill immediately
+                except Exception:
+                    pass
+                self.current_process = None
+            
+            # Set skip flag - this will be picked up by the processing loop
+            self.skip_event.set()
+            
+            # Show brief feedback but don't disable button
+            original_text = self.btn_skip.text()
+            self.btn_skip.setText("Skipping...")
+            
+            # Reset button text quickly but keep it enabled
+            QTimer.singleShot(300, lambda: self.btn_skip.setText(original_text))
+            
+            # Force UI update to ensure responsiveness
+            self.process_queue.put(("LOG", f"[DEBUG] Skip requested. Current file index: {getattr(self, 'current_file_index', 'unknown')}"))
+
+    def force_kill_process(self):
+        """Force kill the current process if it's still running."""
+        with self.process_lock:
+            if self.current_process:
+                try:
+                    self.current_process.kill()
+                except Exception:
+                    pass
+    
+    def reset_skip_button_immediately(self):
+        """Reset skip button to normal state."""
+        self.btn_skip.setEnabled(True)
+        self.btn_skip.setText("Skip Current")
+    
+    def reset_skip_button_if_needed(self):
+        """Reset skip button if it's still in skipping state."""
+        if self.btn_skip.text() == "Skipping..." or not self.btn_skip.isEnabled():
+            self.reset_skip_button_immediately()
 
         # Try to terminate current process if it exists (parallel mode)
         with self.process_lock:
@@ -1637,12 +1745,12 @@ class RemuxApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to copy log to clipboard: {str(e)}")
 
-    def show_completion_dialog(self, message, data, elapsed_time=None):
+    def show_completion_dialog(self, message, data, elapsed_time=None, scan_time=None):
         """Show completion dialog with options to open directory or close."""
         dialog = QDialog(self)
         dialog.setWindowTitle("Complete")
         dialog.setModal(True)
-        dialog.setFixedSize(350, 150)
+        dialog.setFixedSize(350, 170)
 
         # Set window flags to ensure it stays on top and is properly layered
         dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowCloseButtonHint)
@@ -1664,12 +1772,19 @@ class RemuxApp(QMainWindow):
         message_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(message_label)
  
-        # Elapsed time (if available)
+        # Scan time (if available)
+        if scan_time:
+            scan_time_label = QLabel(f"Scan time: {scan_time}")
+            scan_time_label.setAlignment(Qt.AlignCenter)
+            scan_time_label.setStyleSheet("font-style: italic; color: gray;")
+            layout.addWidget(scan_time_label)
+
+        # Remux elapsed time (if available)
         if elapsed_time:
-            time_label = QLabel(f"Elapsed time: {elapsed_time}")
-            time_label.setAlignment(Qt.AlignCenter)
-            time_label.setStyleSheet("font-style: italic; color: gray;")
-            layout.addWidget(time_label)
+            remux_time_label = QLabel(f"Remux time: {elapsed_time}")
+            remux_time_label.setAlignment(Qt.AlignCenter)
+            remux_time_label.setStyleSheet("font-style: italic; color: gray;")
+            layout.addWidget(remux_time_label)
  
         # Add stretchable space to push content up
         layout.addStretch(1)
@@ -1763,23 +1878,29 @@ class RemuxApp(QMainWindow):
             for file in self.files_to_process:
                 self.log_text.append(f"[DEBUG]   {os.path.basename(file)}")
 
-        # Update UI and reset state
+        # Update UI and start automatic scanning
         self.label_input_path.setText(f"{len(self.files_to_process)} files selected")
-        self.reset_scan_state()
+
+        # Start automatic scanning and show remux interface immediately
+        if self.files_to_process:
+            self.start_automatic_scan()
+        else:
+            self.reset_scan_state()
 
     # =============================================================================
     # WORKER THREADS
     # =============================================================================
     def start_scan_thread(self):
         """Start the file scanning thread."""
+        # Clear cancel event in case it was set from a previous cancelled operation
+        self.cancel_event.clear()
+
         # DEBUG: Log files to process before starting scan (only in debug mode)
         if self.debug_mode:
             self.log_text.append(f"[DEBUG] Starting scan with {len(self.files_to_process)} files in queue:")
             for i, file_path in enumerate(self.files_to_process, 1):
                 self.log_text.append(f"[DEBUG]   {i}. {os.path.basename(file_path)} - {file_path}")
 
-        # Hide Auto-start Remux checkbox as soon as scanning starts
-        self.auto_start_checkbox.hide()
 
         # Start scan timer
         self.scan_start_time = time.time()
@@ -1790,8 +1911,7 @@ class RemuxApp(QMainWindow):
         self.btn_browse_output.setEnabled(False)
         self.btn_clear_output.setEnabled(False)
 
-        self.btn_run.setText("Scanning...")
-        self.btn_run.setEnabled(False)
+        # Scanning started automatically - no button to update
         self.log_text.clear()
 
         # Add session header to log
@@ -1803,24 +1923,6 @@ class RemuxApp(QMainWindow):
 
         threading.Thread(target=self.scan_files_worker, args=(list(self.files_to_process),), daemon=True).start()
 
-    def start_remux_thread_auto(self):
-        """Auto-start remuxing after scan completion."""
-        # Show command preview if enabled, even for auto-start
-        if self.preview_commands:
-            # The dialog's result will be True if "accept()" was called, False otherwise
-            user_accepted = self.show_preview_dialog(auto_start=True)
-
-            # Only proceed if the user clicked "Start Remuxing" in the dialog
-            if not user_accepted:
-                # If user closed dialog, behave like clicking scan button again
-                self.btn_start_remux.show()
-                self.btn_start_remux.setEnabled(True)
-                self.btn_run.hide()
-                self.log_text.append("Auto-start cancelled. Click 'Start Remux' to begin processing.")
-                return  # Stop here if the user closed the dialog
-
-        # Continue with normal remuxing if preview is disabled or user clicked Start
-        self.start_remuxing_process()
 
     def start_remux_thread(self):
         """Start the remuxing thread, showing a preview if enabled."""
@@ -1831,10 +1933,9 @@ class RemuxApp(QMainWindow):
 
             # Only proceed if the user clicked "Start Remuxing" in the dialog
             if not user_accepted:
-                # If user closed dialog, behave like clicking scan button again
+                # If user closed dialog, show Start Remux button
                 self.btn_start_remux.show()
                 self.btn_start_remux.setEnabled(True)
-                self.btn_run.hide()
                 self.log_text.append("Preview cancelled. Click 'Start Remux' to begin processing.")
                 return  # Stop here if the user closed the dialog
 
@@ -1858,7 +1959,6 @@ class RemuxApp(QMainWindow):
         self.btn_cancel.setEnabled(True)
         self.disable_settings_controls()
         self.cancel_event.clear()
-        self.skip_event.clear()
         self.pause_event.set()
 
 
@@ -1880,6 +1980,8 @@ class RemuxApp(QMainWindow):
         self.process_queue.put(("LOG", "=" * 70))
         self.process_queue.put(("LOG", f"Remux process started for {len(settings['files'])} files..."))
         threading.Thread(target=self.remux_videos_worker, args=(settings,), daemon=True).start()
+        # Set initial status
+        self.process_queue.put(("STATUS", "Remuxing..."))
 
     def scan_files_worker(self, files):
         """Scan multiple video files in parallel for improved performance."""
@@ -2128,54 +2230,164 @@ class RemuxApp(QMainWindow):
         return result
 
     def remux_videos_worker(self, settings):
-        """Process video files sequentially with simple monitoring."""
-        total_videos = len(settings["files"])
+        """Process video files with simple queue-based skip functionality."""
+        self.file_queue = settings["files"][:] # Create a copy of the file list
+        total_videos = len(self.file_queue)
         remuxed_count, skipped_count, error_count = 0, 0, 0
-
-        for i, video_file_path in enumerate(settings["files"]):
-            self.pause_event.wait()
+        
+        self.current_file_index = 0
+        
+        while self.current_file_index < len(self.file_queue):
             if self.cancel_event.is_set():
                 self.process_queue.put(("LOG", "Operation cancelled by user."))
                 break
-
-            # Reset skip event for each file
-            self.skip_event.clear()
-
+            
+            # Determine current file and info up front so we can update UI even while paused
+            video_file_path = self.file_queue[self.current_file_index]
             file_name = os.path.basename(video_file_path)
+            scan_result = settings["scan_results"].get(video_file_path, {})
+            duration = scan_result.get('duration', 0)
+            # Prepare output paths early so we can handle MOVE action even on pre-start or paused skips
             output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
             output_file_path = os.path.join(output_dir_final, os.path.splitext(file_name)[0] + settings["output_format"])
 
-            # Get file info for progress tracking
-            scan_result = settings["scan_results"].get(video_file_path, {})
-            duration = scan_result.get('duration', 0)
-
-            self.process_queue.put(("STATUS", f"Remuxing: {file_name}"))
-            self.process_queue.put(("PROGRESS", {'total_percent': (i / total_videos) * 100, 'current': i, 'total': total_videos}))
+            # Update UI for the current file immediately
+            self.process_queue.put(("LOG", f"Processing file {self.current_file_index + 1}/{total_videos}: {file_name}"))
+            self.process_queue.put(("PROGRESS", {'total_percent': (self.current_file_index / total_videos) * 100, 'current': self.current_file_index, 'total': total_videos}))
             self.process_queue.put(("CURRENT_FILE", {'filename': file_name, 'duration': duration}))
+
+            # If paused, allow unlimited skipping without starting the process
+            if not self.pause_event.is_set():
+                while not self.pause_event.is_set():
+                    if self.cancel_event.is_set():
+                        self.process_queue.put(("LOG", "Operation cancelled by user."))
+                        break
+                    if self.skip_event.is_set():
+                        # Handle skip while paused: advance to next file and update UI/progress
+                        self.skip_event.clear()
+                        skipped_count += 1
+                        self.process_queue.put(("LOG", f"[SKIP] Skipped while paused: {file_name}"))
+                        # Move original if configured to do so, even on skip
+                        if settings.get("file_action") == FILE_ACTION_MOVE:
+                            try:
+                                self.handle_original_file(file_name, output_file_path, settings)
+                            except Exception as _e:
+                                self.process_queue.put(("LOG", f"   -> WARNING: Failed moving original on skip: {_e}"))
+                        self.current_file_index += 1
+
+                        # Update progress and current file label for the next item
+                        current_processed = self.current_file_index
+                        self.process_queue.put(("PROGRESS", {'total_percent': (current_processed / total_videos) * 100, 'current': current_processed, 'total': total_videos}))
+                        if self.current_file_index < len(self.file_queue):
+                            next_video_file_path = self.file_queue[self.current_file_index]
+                            next_file_name = os.path.basename(next_video_file_path)
+                            next_scan_result = settings["scan_results"].get(next_video_file_path, {})
+                            next_duration = next_scan_result.get('duration', 0)
+                            self.process_queue.put(("CURRENT_FILE", {'filename': next_file_name, 'duration': next_duration}))
+                            # Update local context for handling multiple rapid skips while paused
+                            video_file_path = next_video_file_path
+                            file_name = next_file_name
+                            scan_result = next_scan_result
+                            duration = next_duration
+                            # Recompute output paths for the new current file
+                            output_dir_final = settings["output_dir"] or os.path.dirname(video_file_path)
+                            output_file_path = os.path.join(output_dir_final, os.path.splitext(file_name)[0] + settings["output_format"])
+                        else:
+                            self.process_queue.put(("CURRENT_FILE", {'filename': 'Processing Complete', 'duration': 0}))
+                            break
+                    else:
+                        time.sleep(0.1)
+
+                # If cancelled during pause, stop
+                if self.cancel_event.is_set():
+                    break
+
+                # If we reached the end while paused due to skipping past the last item
+                if self.current_file_index >= len(self.file_queue):
+                    break
+
+            # If a skip was requested just before starting, treat it as pre-start skip
+            if self.skip_event.is_set():
+                self.skip_event.clear()
+                skipped_count += 1
+                self.process_queue.put(("LOG", f"[SKIP] Skipped before starting: {file_name}"))
+                # Move original if configured to do so, even on skip
+                if settings.get("file_action") == FILE_ACTION_MOVE:
+                    try:
+                        self.handle_original_file(file_name, output_file_path, settings)
+                    except Exception as _e:
+                        self.process_queue.put(("LOG", f"   -> WARNING: Failed moving original on skip: {_e}"))
+                self.current_file_index += 1
+
+                # Update progress and set the next current file immediately
+                current_processed = self.current_file_index
+                self.process_queue.put(("PROGRESS", {'total_percent': (current_processed / total_videos) * 100, 'current': current_processed, 'total': total_videos}))
+                if self.current_file_index < len(self.file_queue):
+                    next_video_file_path = self.file_queue[self.current_file_index]
+                    next_file_name = os.path.basename(next_video_file_path)
+                    next_scan_result = settings["scan_results"].get(next_video_file_path, {})
+                    next_duration = next_scan_result.get('duration', 0)
+                    self.process_queue.put(("CURRENT_FILE", {'filename': next_file_name, 'duration': next_duration}))
+                else:
+                    self.process_queue.put(("CURRENT_FILE", {'filename': 'Processing Complete', 'duration': 0}))
+                continue
+
+            # Re-enable skip button for each file
+            self.process_queue.put(("SKIP_BUTTON_RESET", None))
 
             # Check if file is valid
             if not scan_result.get('valid', True):
                 self.process_queue.put(("LOG", f"Skipping invalid file: {file_name}"))
                 skipped_count += 1
+                self.current_file_index += 1
                 continue
 
             # Build and execute command
             command, output_file_path = self.build_ffmpeg_command(video_file_path, settings)
 
-            # Use simple execution without complex monitoring
+            # Process the file
             result = self.execute_ffmpeg_process(command, output_file_path, file_name, duration, settings, video_file_path)
 
-            # Update counts based on the result
+            # Handle result
             if result == "error":
                 error_count += 1
                 skipped_count += 1
+                self.process_queue.put(("LOG", f"[DEBUG] File error: {file_name}"))
             elif result == "completed":
                 remuxed_count += 1
+                self.process_queue.put(("LOG", f"[DEBUG] File completed: {file_name}"))
             elif result == "skipped":
                 skipped_count += 1
+                self.process_queue.put(("LOG", f"[DEBUG] File skipped: {file_name}"))
+                # Move original if configured to do so on skip after process started or output existed
+                if settings.get("file_action") == FILE_ACTION_MOVE:
+                    try:
+                        self.handle_original_file(file_name, output_file_path, settings)
+                    except Exception as _e:
+                        self.process_queue.put(("LOG", f"   -> WARNING: Failed moving original on skip: {_e}"))
             elif result == "cancelled":
                 break
-
+                
+            # Move to next file
+            self.current_file_index += 1
+            
+            # Update progress immediately after processing each file
+            current_processed = self.current_file_index
+            self.process_queue.put(("PROGRESS", {'total_percent': (current_processed / total_videos) * 100, 'current': current_processed, 'total': total_videos}))
+            
+            # Update UI to show next file if there are more files
+            if self.current_file_index < len(self.file_queue):
+                next_video_file_path = self.file_queue[self.current_file_index]
+                next_file_name = os.path.basename(next_video_file_path)
+                next_scan_result = settings["scan_results"].get(next_video_file_path, {})
+                next_duration = next_scan_result.get('duration', 0)
+                
+                self.process_queue.put(("CURRENT_FILE", {'filename': next_file_name, 'duration': next_duration}))
+                self.process_queue.put(("LOG", f"[DEBUG] UI updated for next file: {next_file_name}"))
+            else:
+                self.process_queue.put(("CURRENT_FILE", {'filename': 'Processing Complete', 'duration': 0}))
+                self.process_queue.put(("LOG", f"[DEBUG] All files processed. Queue complete."))
+        
         self.process_queue.put(("PROGRESS", {'total_percent': 100, 'current': total_videos, 'total': total_videos}))
         self.process_queue.put(("FINISHED", {'remuxed': remuxed_count, 'skipped': skipped_count}))
 
@@ -2207,28 +2419,59 @@ class RemuxApp(QMainWindow):
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
 
+            # Store process reference for skip functionality
+            with self.process_lock:
+                self.current_process = process
+
             # Read output line by line to prevent freezing
             while True:
+                # Check for skip - immediate return if skip requested
+                if self.skip_event.is_set():
+                    # Clear skip event immediately to allow next skip
+                    self.skip_event.clear()
+                    
+                    self.process_queue.put(("LOG", f"[SKIP] Skipping {file_name} - moving to next file"))
+                    
+                    # Re-enable skip button immediately
+                    self.process_queue.put(("SKIP_BUTTON_RESET", None))
+                    
+                    process.terminate()
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                    
+                    # Clean up output file
+                    try:
+                        if os.path.exists(output_file_path):
+                            os.remove(output_file_path)
+                    except Exception:
+                        pass
+                    
+                    # Clear process reference
+                    with self.process_lock:
+                        self.current_process = None
+                    
+                    return "skipped"
+
+                # Check for cancel event
                 if self.cancel_event.is_set():
                     process.terminate()
                     try:
-                        if os.path.exists(output_file_path):
-                            os.remove(output_file_path)
-                    except Exception:
-                        pass
-                    return "cancelled"
-
-                if self.skip_event.is_set():
-                    self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
-                    process.terminate()
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    
                     try:
                         if os.path.exists(output_file_path):
                             os.remove(output_file_path)
                     except Exception:
                         pass
-
-                    # Skip file without moving original file to Remuxed folder
-                    return "skipped"
+                    
+                    with self.process_lock:
+                        self.current_process = None
+                    return "cancelled"
 
                 # Check for pause event - this makes pause responsive during file processing
                 if not self.pause_event.is_set():
@@ -2240,23 +2483,25 @@ class RemuxApp(QMainWindow):
                     if self.cancel_event.is_set():
                         process.terminate()
                         try:
-                            if os.path.exists(output_file_path):
-                                os.remove(output_file_path)
-                        except Exception:
-                            pass
-                        return "cancelled"
-
-                    if self.skip_event.is_set():
-                        self.process_queue.put(("LOG", f"[SKIP] Skipping file: {file_name}"))
-                        process.terminate()
+                            process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                        
                         try:
                             if os.path.exists(output_file_path):
                                 os.remove(output_file_path)
                         except Exception:
                             pass
+                        
+                        with self.process_lock:
+                            self.current_process = None
+                        return "cancelled"
 
-                        # Skip file without moving original file to Remuxed folder
-                        return "skipped"
+                    # Check for skip during pause
+                    if self.skip_event.is_set():
+                        # Skip requested while paused - handle it
+                        continue
 
                     # If we get here, pause was lifted, continue processing
                     continue
@@ -2276,6 +2521,13 @@ class RemuxApp(QMainWindow):
 
             # Wait for process to complete
             process.wait()
+
+            # Clear the process reference
+            with self.process_lock:
+                self.current_process = None
+
+            # Re-enable skip button for next file
+            self.process_queue.put(("SKIP_BUTTON_RESET", None))
 
             if self.cancel_event.is_set():
                 try:
@@ -2313,6 +2565,10 @@ class RemuxApp(QMainWindow):
 
         except Exception as e:
             self.process_queue.put(("LOG", f"   -> CRITICAL ERROR: {e}"))
+            with self.process_lock:
+                self.current_process = None
+            # Re-enable skip button for next file
+            self.process_queue.put(("SKIP_BUTTON_RESET", None))
             return "error"
 
     def preserve_file_timestamps(self, source_file, target_file):
@@ -2631,7 +2887,12 @@ if __name__ == "__main__":
         pass
         # print("[DEBUG] Using existing QApplication instance...")
 
-    # print(f"[DEBUG] QApplication instance: {app}")
+    # Set a modern, clean font for the application with fallbacks
+    font = QFont()
+    font.setFamilies(["Roboto", "Segoe UI", "Arial"])
+    font.setPointSize(9)
+    app.setFont(font)
+
     # print(f"[DEBUG] Number of top-level windows before creating main window: {len(app.topLevelWindows())}")
 
     window = RemuxApp()
