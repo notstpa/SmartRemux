@@ -66,7 +66,7 @@ class RemuxApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Stpa Remuxer v2.1.1")
+        self.setWindowTitle("SmartRemux v2.2")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         # Allow vertical resizing by not constraining maximum height
@@ -250,7 +250,7 @@ class RemuxApp(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)  # Add margins
 
         # --- Source & Output Frame ---
-        source_output_group = QGroupBox("Source & Output")
+        source_output_group = QGroupBox("Import")
         # ADD THIS STYLESHEET for consistent, compact appearance
         # Modern stylesheet for a consistent, clean appearance
         source_output_group.setStyleSheet("""
@@ -997,7 +997,7 @@ class RemuxApp(QMainWindow):
         msg.setIcon(QMessageBox.Warning)
         msg.setText(f"The following required tools are not found:\n\n{tools_text}\n\n"
                    "Please ensure they are either:\n"
-                   "• In the same directory as this application, or\n"
+                   "• In the same directory as this application\n"
                    "• Available in your system PATH\n\n"
                    "After adding the files, click 'Retry' to continue.")
 
@@ -1925,7 +1925,7 @@ class RemuxApp(QMainWindow):
         from datetime import datetime
         session_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.process_queue.put(("LOG", "=" * 70))
-        self.process_queue.put(("LOG", f"STPA REMUXER LOG SESSION - {session_time}"))
+        self.process_queue.put(("LOG", f"SMARTREMUX LOG SESSION - {session_time}"))
         self.process_queue.put(("LOG", "=" * 70))
 
         threading.Thread(target=self.scan_files_worker, args=(list(self.files_to_process),), daemon=True).start()

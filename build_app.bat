@@ -5,8 +5,8 @@ setlocal enabledelayedexpansion
 set /p "VERSION=Enter version (e.g., 2.1): "
 if not defined VERSION set "VERSION=2.1"
 
-set "APP_NAME_FULL=StpaRemuxer.v%VERSION%"
-set "APP_NAME_LITE=StpaRemuxer.v%VERSION%-Lite"
+set "APP_NAME_FULL=SmartRemux.v%VERSION%"
+set "APP_NAME_LITE=SmartRemux.v%VERSION%-Lite"
 set "SPEC_FILE=remuxer.spec"
 set "DIST_PATH=dist"
 set "BUILD_PATH=build"
