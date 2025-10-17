@@ -1,4 +1,4 @@
-# Remuxer v2.1.1
+# SmartRemux v2.1.1
 
 [Download Here](https://github.com/notstpa/stpa-remuxer/releases)
 
@@ -19,11 +19,11 @@ A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preservin
 
 # Versions
 
-StpaRemuxer
+SmartRemux
 - **Included:** Python app with FFmpeg (ffmpeg.exe & ffprobe.exe)
 - **File Size:** Larger due to built in FFmpeg executables
 
-StpaRemuxer-Lite
+SmartRemux-Lite
 - **Included:** Compiled Python app (no FFmpeg binaries)
 - **Best For:** Users with FFmpeg installed in path or apps directory.
 - **File Size:** Small
