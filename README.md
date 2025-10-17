@@ -1,10 +1,8 @@
 # SmartRemux v2.2.0
 
 ![Stpa Remuxer Screenshot](https://i.imgur.com/qSW0mps.png)
-![Stpa Remuxer Screenshot](https://i.imgur.com/WCnPlPu.png)
 
 [Download Here](https://github.com/notstpa/stpa-remuxer/releases)
-
 # Features 
 - **Lossless Remuxing**: Convert containers without re-encoding.
 - **VFR Fix**: Remuxes while keeping your footage CFR for editing software.
@@ -14,6 +12,7 @@
 - **Parallel Processing**: Faster scans with multiple cores.
 - **Real-time Progress & Logs**: Track progress and log details.
 
+![Stpa Remuxer Screenshot](https://i.imgur.com/WCnPlPu.png)
 # Versions
 
 SmartRemux
