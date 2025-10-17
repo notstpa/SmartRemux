@@ -10,10 +10,9 @@ A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preservin
 # Features 
 - **Lossless Remuxing**: Convert containers without re-encoding.
 - **VFR Fix**: Remuxes while keeping your footage CFR for editing software.
-- **Batch Processing**: Remux multiple files at once.
 - **Flexible Output**: MP4 or MOV formats.
 - **File Management**: Move, keep, or delete originals post-remux.
-- **Custom Settings**: Control audio streams, validation, timestamps.
+- **Custom Settings**: Control audio streams,timestamps, and more.
 - **Parallel Processing**: Faster scans with multiple cores.
 - **Real-time Progress & Logs**: Track progress and log details.
 
