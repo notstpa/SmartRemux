@@ -36,3 +36,6 @@ SmartRemux-Lite
    - **Note:** The app will not function unless `ffmpeg.exe` and `ffprobe.exe` are either placed in the root directory or added to your system's PATH.
 3. Run `build_app.bat`.
 4. The app will be in the `dist` folder.
+
+# Disclaimer
+This tool was originally made for personal use with the assistance of AI tools.
