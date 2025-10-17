@@ -10,24 +10,25 @@ set "APP_NAME_LITE=SmartRemux.v%VERSION%-Lite"
 set "SPEC_FILE=remuxer.spec"
 set "DIST_PATH=dist"
 set "BUILD_PATH=build"
+set "PYTHON_EXE=C:/Users/stopa/AppData/Local/Programs/Python/Python314/python.exe"
 
 :: --- Pre-build Checks ---
 echo Building executables for version %VERSION%...
 echo.
 
 rem Check for Python
-python --version >nul 2>&1
+"%PYTHON_EXE%" --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ERROR: Python is not installed or not in PATH.
+    echo ERROR: Python is not installed or not accessible.
     pause
     exit /b 1
 )
 
 rem Check for PyInstaller
-python -m pip show pyinstaller >nul 2>&1
+"%PYTHON_EXE%" -m pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
-    python -m pip install pyinstaller
+    "%PYTHON_EXE%" -m pip install pyinstaller
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install PyInstaller.
         pause
@@ -36,10 +37,10 @@ if %errorlevel% neq 0 (
 )
 
 rem Check for PyQt5
-python -m pip show PyQt5 >nul 2>&1
+"%PYTHON_EXE%" -m pip show PyQt5 >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing PyQt5...
-    python -m pip install PyQt5
+    "%PYTHON_EXE%" -m pip install PyQt5
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install PyQt5.
         pause
@@ -59,7 +60,7 @@ echo.
 echo Building %APP_NAME_FULL%...
 
 set "PYINSTALLER_APP_NAME=%APP_NAME_FULL%"
-python -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
+"%PYTHON_EXE%" -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
 
 if %errorlevel% neq 0 (
     echo.
@@ -83,7 +84,7 @@ if exist "ffmpeg.exe" ren "ffmpeg.exe" "ffmpeg.bak"
 if exist "ffprobe.exe" ren "ffprobe.exe" "ffprobe.bak"
 
 set "PYINSTALLER_APP_NAME=%APP_NAME_LITE%"
-python -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
+"%PYTHON_EXE%" -m PyInstaller %SPEC_FILE% --distpath "%DIST_PATH%" --clean
 
 rem Rename the files back immediately after the build.
 if exist "ffmpeg.bak" ren "ffmpeg.bak" "ffmpeg.exe"
