@@ -7,9 +7,7 @@ A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preservin
 ![Stpa Remuxer Screenshot](https://i.imgur.com/AFLqXYZ.png)
 ![Stpa Remuxer Screenshot](https://i.imgur.com/mwU5gKO.png)
 
-Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank">Buy me a coffee</a>
-
-### Features 🚀
+# Features 
 - **Lossless Remuxing**: Convert containers without re-encoding.
 - **VFR Fix**: Remuxes while keeping your footage CFR for editing software.
 - **Batch Processing**: Remux multiple files at once.
@@ -19,18 +17,18 @@ Support development: <a href="https://www.buymeacoffee.com/stpa" target="_blank"
 - **Parallel Processing**: Faster scans with multiple cores.
 - **Real-time Progress & Logs**: Track progress and log details.
 
-## Versions 📁
+# Versions
 
-### StpaRemuxer
+StpaRemuxer
 - **Included:** Python app with FFmpeg (ffmpeg.exe & ffprobe.exe)
 - **File Size:** Larger due to built in FFmpeg executables
 
-### StpaRemuxer-Lite
+StpaRemuxer-Lite
 - **Included:** Compiled Python app (no FFmpeg binaries)
 - **Best For:** Users with FFmpeg installed in path or apps directory.
 - **File Size:** Small
 
-## Build from Source 🧑‍💻
+# Build from Source
 1. Clone the repo and install dependencies.
    ```shell
    pip install -r requirements.txt
