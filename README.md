@@ -1,11 +1,9 @@
 # SmartRemux v2.2.0
 
-[Download Here](https://github.com/notstpa/stpa-remuxer/releases)
-
-A Python and PyQt app for remuxing MKV to MP4/MOV without re-encoding, preserving quality. It fixes VFR issues for editing compatibility with DaVinci Resolve and Adobe Premiere Pro.
-
 ![Stpa Remuxer Screenshot](https://i.imgur.com/qSW0mps.png)
 ![Stpa Remuxer Screenshot](https://i.imgur.com/WCnPlPu.png)
+
+[Download Here](https://github.com/notstpa/stpa-remuxer/releases)
 
 # Features 
 - **Lossless Remuxing**: Convert containers without re-encoding.
@@ -36,6 +34,3 @@ SmartRemux-Lite
    - **Note:** The app will not function unless `ffmpeg.exe` and `ffprobe.exe` are either placed in the root directory or added to your system's PATH.
 3. Run `build_app.bat`.
 4. The app will be in the `dist` folder.
-
-# Disclaimer
-This tool was originally made for personal use with the assistance of AI tools.
