@@ -3,5 +3,6 @@ ffprobe.exe
 remuxer_settings.json
 build/
 dist/
+releases/
 __pycache__
 random/
