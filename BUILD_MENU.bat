@@ -4,7 +4,7 @@ color 0A
 
 REM Set default version if not already set
 if not defined APP_VERSION (
-    set APP_VERSION=2.2.0
+    set APP_VERSION=2.2.1
 )
 
 :menu

@@ -2,10 +2,10 @@
 ; This creates a professional Windows installer with desktop shortcut
 
 #define MyAppName "SmartRemux"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "2.2.1"
 #define MyAppPublisher "Stpa"
 #define MyAppExeName "SmartRemux.exe"
-#define MyAppURL "https://github.com/yourusername/smartremux"
+#define MyAppURL "https://github.com/notstpa/SmartRemux"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
