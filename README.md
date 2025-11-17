@@ -1,4 +1,4 @@
-# SmartRemux v2.2.0
+# SmartRemux v2.2.1
 
 ![Stpa Remuxer Screenshot](https://i.imgur.com/qSW0mps.png)
 
@@ -16,13 +16,18 @@
 # Versions
 
 SmartRemux
-- **Included:** Python app with FFmpeg (ffmpeg.exe & ffprobe.exe)
-- **File Size:** Larger due to built in FFmpeg executables
+- **Included:** App + FFmpeg (ffmpeg.exe & ffprobe.exe)
+- **File Size:** Larger because FFmpeg is built in
 
 SmartRemux-Lite
-- **Included:** Compiled Python app (no FFmpeg binaries)
-- **Best For:** Users with FFmpeg installed in path or apps directory.
+- **Included:** App only (no FFmpeg)
+- **Best For:** Users who already have FFmpeg installed
 - **File Size:** Small
+
+SmartRemux-Installer
+- **Included:** Installer that sets up SmartRemux with FFmpeg
+- **Best For:** Users who want an easy, guided installation
+- **File Size:** Largest due to full installer + FFmpeg
 
 # Build from Source
 1. Clone the repo and install dependencies.
