@@ -66,7 +66,7 @@ class RemuxApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartRemux v2.2")
+        self.setWindowTitle("SmartRemux v2.2.1")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         # Allow vertical resizing by not constraining maximum height
@@ -831,16 +831,19 @@ class RemuxApp(QMainWindow):
     def get_settings_file_path(self):
         """Get the path to the settings file."""
         try:
-            # Use the application's directory for settings
+            # When running as an executable, use AppData for settings
             if getattr(sys, 'frozen', False):
-                # PyInstaller executable
-                app_dir = os.path.dirname(sys.executable)
+                # PyInstaller executable - use AppData/Local
+                app_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'SmartRemux')
+                # Create directory if it doesn't exist
+                os.makedirs(app_data_dir, exist_ok=True)
+                return os.path.join(app_data_dir, "remuxer_settings.json")
             else:
-                # Regular Python script
+                # Regular Python script - use application directory
                 app_dir = os.path.dirname(os.path.abspath(__file__))
-
-            return os.path.join(app_dir, "remuxer_settings.json")
-        except:
+                return os.path.join(app_dir, "remuxer_settings.json")
+        except Exception as e:
+            print(f"Error getting settings path: {e}")
             # Fallback to current directory
             return "remuxer_settings.json"
 
