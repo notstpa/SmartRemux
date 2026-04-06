@@ -1,4 +1,4 @@
-# SmartRemux v2.2.1
+# SmartRemux v2.2.2
 
 ![Stpa Remuxer Screenshot](https://i.imgur.com/qSW0mps.png)
 
