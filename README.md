@@ -34,7 +34,7 @@ SmartRemux-Installer
    ```shell
    pip install -r requirements.txt
    ```
-2. Download `ffmpeg.exe` and `ffprobe.exe` from FFmpeg Download if you want to create the Full version.
+2. Download `ffmpeg.exe` and `ffprobe.exe` if you want to create the Full version.
    - **Note:** The Full build requires `ffmpeg.exe` and `ffprobe.exe` in the repository root.
    - If you only want the Lite build, you can skip those files.
 3. Run the build menu batch script.
