@@ -34,7 +34,20 @@ SmartRemux-Installer
    ```shell
    pip install -r requirements.txt
    ```
-2. Download `ffmpeg.exe` and `ffprobe.exe` from FFmpeg Download.
-   - **Note:** The app will not function unless `ffmpeg.exe` and `ffprobe.exe` are either placed in the root directory or added to your system's PATH.
-3. Run `build_app.bat`.
-4. The app will be in the `dist` folder.
+2. Download `ffmpeg.exe` and `ffprobe.exe` from FFmpeg Download if you want to create the Full version.
+   - **Note:** The Full build requires `ffmpeg.exe` and `ffprobe.exe` in the repository root.
+   - If you only want the Lite build, you can skip those files.
+3. Run the build menu batch script.
+   ```shell
+   BUILD_MENU.bat
+   ```
+4. The output is generated in the `dist/` folder and copied into `releases/`.
+
+## Build Options
+The batch menu lets you build:
+- Full version (with FFmpeg bundled)
+- Lite version (without FFmpeg bundled)
+- Installer only
+- Clean build folders
+
+Use the batch menu for local builds and keep the repo source files clean.

@@ -66,7 +66,7 @@ class RemuxApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartRemux v2.2.1")
+        self.setWindowTitle("SmartRemux v2.2.2")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         # Allow vertical resizing by not constraining maximum height
@@ -713,9 +713,8 @@ class RemuxApp(QMainWindow):
         # Hide Step 2 initially - only show after scanning files
         self.progress_group.hide()
 
-        # Center the content vertically by adding stretch at top and bottom
-        layout.insertStretch(0, 1)  # Add stretch at the beginning
-        layout.addStretch(1)        # Keep stretch at the end for balance
+        # Add stretch at the end to push content to top when window is resized
+        layout.addStretch(1)
 
         # Load saved settings after creating all widgets
         self.load_settings()
@@ -2145,61 +2144,8 @@ class RemuxApp(QMainWindow):
     def scan_single_file(self, file_path):
         """Scan a single video file for metadata (used by parallel worker)."""
         result = {'valid': True, 'fps': None, 'duration': 0}
-        file_name = os.path.basename(file_path) # Get the filename for logging
+        file_name = os.path.basename(file_path)
 
-        # Skip validation if validation is disabled
-        if not self.validate_files:
-            try:
-                # Get FPS first (separate call to ensure proper logging)
-                fps_command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
-                             "-show_entries", "stream=avg_frame_rate", "-of",
-                             "default=noprint_wrappers=1:nokey=1", file_path]
-
-                fps_process = subprocess.run(fps_command, capture_output=True, text=True, check=True, timeout=FPS_SCAN_TIMEOUT,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-
-                fps_fraction = fps_process.stdout.strip()
-                if '/' in fps_fraction and fps_fraction != "0/0":
-                    num, den = map(int, fps_fraction.split('/'))
-                    if den != 0:
-                        fps_value = num / den
-                        result['fps'] = str(fps_value)
-                elif fps_fraction and fps_fraction != "0/0":
-                    try:
-                        fps_value = float(fps_fraction)
-                        result['fps'] = fps_fraction
-                    except ValueError:
-                        pass
-
-                # Get duration and other info in a separate optimized call
-                duration_command = [self.ffprobe_path, "-v", "error", "-show_entries", "format=duration",
-                                  "-of", "default=noprint_wrappers=1:nokey=1", file_path]
-
-                duration_process = subprocess.run(duration_command, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
-                                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-
-                if duration_process.returncode == 0:
-                    try:
-                        result['duration'] = float(duration_process.stdout.strip())
-                    except ValueError:
-                        pass
-
-                # Get audio track info if audio is included (separate call for detailed audio info)
-                if self.include_audio:
-                    audio_tracks = self.get_audio_track_info(file_path)
-                    result['audio_tracks'] = len(audio_tracks)
-                    if audio_tracks:
-                        languages = [track['language'] for track in audio_tracks if track['language'] != 'und']
-                        result['languages'] = languages
-
-            except subprocess.TimeoutExpired:
-                self.process_queue.put(("LOG", f"Warning: Timeout scanning: {file_name}"))
-            except Exception as e:
-                self.process_queue.put(("LOG", f"Warning: Error scanning {file_name}: {str(e)}"))
-
-            return result
-
-        # Perform validation if validation is enabled
         try:
             # Get FPS first (separate call to ensure proper logging)
             fps_command = [self.ffprobe_path, "-v", "error", "-select_streams", "v:0",
@@ -2244,13 +2190,16 @@ class RemuxApp(QMainWindow):
                     result['languages'] = languages
 
         except subprocess.TimeoutExpired:
-            result['valid'] = False
+            # Only mark as invalid if validation is enabled
+            if self.validate_files:
+                result['valid'] = False
             self.process_queue.put(("LOG", f"Warning: Timeout scanning: {file_name}"))
         except Exception as e:
-            result['valid'] = False
+            # Only mark as invalid if validation is enabled
+            if self.validate_files:
+                result['valid'] = False
             self.process_queue.put(("LOG", f"Warning: Error scanning {file_name}: {str(e)}"))
 
-        # *** ADDED THIS BLOCK TO LOG VALIDATION STATUS ***
         # Only log validation failures to reduce log spam
         if not result['valid']:
             self.process_queue.put(("LOG", f"✗ Validation failed for {file_name}"))

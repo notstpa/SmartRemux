@@ -4,5 +4,12 @@ remuxer_settings.json
 build/
 dist/
 releases/
-__pycache__
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.swp
+*.log
+.venv/
+.vscode/
 random/
