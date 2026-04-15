@@ -935,11 +935,17 @@ class RemuxApp(QMainWindow):
     # =============================================================================
     # UTILITY METHODS
     # =============================================================================
+    def get_application_base_path(self):
+        """Return the directory the app should use for bundled sidecar files."""
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(__file__))
+
     def find_ffmpeg_path(self):
         """Find ffmpeg executable by checking current directory first, then system PATH."""
-        # First, try to find ffmpeg in the current directory (same as application)
+        # First, try to find ffmpeg next to the application executable/script.
         try:
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            base_path = self.get_application_base_path()
             ffmpeg_local_path = os.path.join(base_path, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
 
             if os.path.exists(ffmpeg_local_path):
@@ -961,9 +967,9 @@ class RemuxApp(QMainWindow):
 
     def find_ffprobe_path(self):
         """Find ffprobe executable by checking current directory first, then system PATH."""
-        # First, try to find ffprobe in the current directory (same as application)
+        # First, try to find ffprobe next to the application executable/script.
         try:
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            base_path = self.get_application_base_path()
             ffprobe_local_path = os.path.join(base_path, "ffprobe.exe" if sys.platform == "win32" else "ffprobe")
 
             if os.path.exists(ffprobe_local_path):
@@ -1044,8 +1050,8 @@ class RemuxApp(QMainWindow):
         try:
             base_path = sys._MEIPASS
         except AttributeError:
-            # Use the script's directory instead of current working directory
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            # Use the app directory instead of the current working directory.
+            base_path = self.get_application_base_path()
 
         # Only add .exe extension for actual executable files, not data files
         if (sys.platform == "win32" and

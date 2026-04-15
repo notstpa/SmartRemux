@@ -101,28 +101,36 @@ echo Full version created!
 
 :skip_full_build
 echo.
-echo [5/6] Checking for Inno Setup...
+echo [5/6] Building Lite version (without FFmpeg)...
+if exist build rmdir /s /q build 2>nul
+if exist dist rmdir /s /q dist 2>nul
+
+pyinstaller SmartRemux.spec --clean
+
+if errorlevel 1 (
+    echo Lite version build failed!
+    goto skip_installer_build
+) else (
+    copy "dist\SmartRemux.exe" "releases\SmartRemux.v%APP_VERSION%-Lite.exe" >nul
+    echo Lite version created!
+)
+
+echo.
+echo [6/6] Checking for Inno Setup...
 set ISCC_PATH=
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe
 if exist "%ProgramFiles(x86)%\Inno Setup 5\ISCC.exe" set ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 5\ISCC.exe
 if exist "%ProgramFiles%\Inno Setup 5\ISCC.exe" set ISCC_PATH=%ProgramFiles%\Inno Setup 5\ISCC.exe
 
-echo Checking if dist\SmartRemux.exe exists for installer...
-if not exist "dist\SmartRemux.exe" (
-    if exist "releases\SmartRemux.v%APP_VERSION%.exe" (
-        echo Restoring dist\SmartRemux.exe from releases\SmartRemux.v%APP_VERSION%.exe
-        if not exist dist mkdir dist
-        copy /Y "releases\SmartRemux.v%APP_VERSION%.exe" "dist\SmartRemux.exe" >nul
-    )
-)
+echo Using Lite build for installer to avoid bundling FFmpeg twice...
 
 if "%ISCC_PATH%"=="" (
     echo WARNING: Inno Setup not found - Skipping installer
 ) else (
     echo Inno Setup found!
     echo.
-    echo [6/6] Creating installer...
+    echo [7/7] Creating installer...
 
     REM Update installer version
     powershell -Command "(Get-Content 'installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%APP_VERSION%\"' | Set-Content 'installer.iss'"
@@ -139,20 +147,7 @@ if "%ISCC_PATH%"=="" (
     )
 )
 
-echo.
-echo [7/7] Building Lite version (without FFmpeg)...
-if exist build rmdir /s /q build 2>nul
-if exist dist rmdir /s /q dist 2>nul
-
-pyinstaller SmartRemux.spec --clean
-
-if errorlevel 1 (
-    echo Lite version build failed!
-) else (
-    copy "dist\SmartRemux.exe" "releases\SmartRemux.v%APP_VERSION%-Lite.exe" >nul
-    echo Lite version created!
-)
-
+:skip_installer_build
 echo.
 echo [8/8] Cleaning up temporary folders...
 if exist build rmdir /s /q build 2>nul
@@ -334,50 +329,37 @@ echo.
 
 echo [1/3] Checking if dist\SmartRemux.exe exists...
 if not exist "dist\SmartRemux.exe" (
-    echo dist\SmartRemux.exe not found in dist\, trying to restore from releases\...
+    echo dist\SmartRemux.exe not found in dist\, trying to restore Lite build from releases\...
     if not exist dist mkdir dist
-    if exist "releases\SmartRemux.v%APP_VERSION%.exe" (
-        echo Restoring dist\SmartRemux.exe from releases\SmartRemux.v%APP_VERSION%.exe
-        copy /Y "releases\SmartRemux.v%APP_VERSION%.exe" "dist\SmartRemux.exe" >nul
+    if exist "releases\SmartRemux.v%APP_VERSION%-Lite.exe" (
+        echo Restoring dist\SmartRemux.exe from releases\SmartRemux.v%APP_VERSION%-Lite.exe
+        copy /Y "releases\SmartRemux.v%APP_VERSION%-Lite.exe" "dist\SmartRemux.exe" >nul
         if errorlevel 1 (
-            echo ERROR: Failed to restore dist\SmartRemux.exe from releases\SmartRemux.v%APP_VERSION%.exe
+            echo ERROR: Failed to restore dist\SmartRemux.exe from releases\SmartRemux.v%APP_VERSION%-Lite.exe
         ) else (
             echo Restored successfully.
         )
     ) else (
-        echo releases\SmartRemux.v%APP_VERSION%.exe not found.
+        echo releases\SmartRemux.v%APP_VERSION%-Lite.exe not found.
     )
 )
 if not exist "dist\SmartRemux.exe" (
-    echo dist\SmartRemux.exe still not found. Attempting Full build now...
-    if not exist "ffmpeg.exe" (
-        echo ERROR: ffmpeg.exe not found in current directory!
-        echo Please place ffmpeg.exe and ffprobe.exe in the project folder.
-        pause
-        goto menu
-    )
-    if not exist "ffprobe.exe" (
-        echo ERROR: ffprobe.exe not found in current directory!
-        echo Please place ffmpeg.exe and ffprobe.exe in the project folder.
-        pause
-        goto menu
-    )
-    echo Building Full version for installer...
+    echo dist\SmartRemux.exe still not found. Attempting Lite build now...
     if exist build rmdir /s /q build 2>nul
     if exist dist rmdir /s /q dist 2>nul
-    pyinstaller SmartRemux_Full.spec --clean
+    pyinstaller SmartRemux.spec --clean
     if errorlevel 1 (
-        echo ERROR: Full build failed during installer creation.
+        echo ERROR: Lite build failed during installer creation.
         pause
         goto menu
     )
     if not exist "dist\SmartRemux.exe" (
-        echo ERROR: dist\SmartRemux.exe still missing after Full build.
+        echo ERROR: dist\SmartRemux.exe still missing after Lite build.
         pause
         goto menu
     )
     if not exist releases mkdir releases
-    copy /Y "dist\SmartRemux.exe" "releases\SmartRemux.v%APP_VERSION%.exe" >nul
+    copy /Y "dist\SmartRemux.exe" "releases\SmartRemux.v%APP_VERSION%-Lite.exe" >nul
 )
 echo Found dist\SmartRemux.exe
 
