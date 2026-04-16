@@ -1,4 +1,4 @@
-# SmartRemux v2.2.2
+# SmartRemux v2.2.3
 
 ![Stpa Remuxer Screenshot](https://i.imgur.com/qSW0mps.png)
 
@@ -39,7 +39,7 @@ SmartRemux-Installer
    - If you only want the Lite build, you can skip those files.
 3. Run the build menu batch script.
    ```shell
-   BUILD_MENU.bat
+   packaging\scripts\BUILD_MENU.bat
    ```
 4. The output is generated in the `dist/` folder and copied into `releases/`.
 
@@ -51,3 +51,10 @@ The batch menu lets you build:
 - Clean build folders
 
 Use the batch menu for local builds and keep the repo source files clean.
+
+## Repository Layout
+- `main.py`: main application source
+- `packaging/pyinstaller/`: PyInstaller spec files
+- `packaging/installer/`: Inno Setup installer script
+- `packaging/scripts/`: local build helper scripts
+- `releases/`: generated release artifacts

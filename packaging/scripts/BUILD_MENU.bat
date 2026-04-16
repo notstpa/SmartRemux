@@ -2,9 +2,13 @@
 title SmartRemux Build Menu
 color 0A
 
+set SCRIPT_DIR=%~dp0
+for %%I in ("%SCRIPT_DIR%..\..") do set ROOT_DIR=%%~fI
+pushd "%ROOT_DIR%"
+
 REM Set default version if not already set
 if not defined APP_VERSION (
-    set APP_VERSION=2.2.1
+    set APP_VERSION=2.2.3
 )
 
 :menu
@@ -87,7 +91,7 @@ if not exist "ffprobe.exe" (
     goto skip_full_build
 )
 
-pyinstaller SmartRemux_Full.spec --clean
+pyinstaller packaging\pyinstaller\SmartRemux_Full.spec --clean
 
 if errorlevel 1 (
     echo Full version build failed!
@@ -105,7 +109,7 @@ echo [5/6] Building Lite version (without FFmpeg)...
 if exist build rmdir /s /q build 2>nul
 if exist dist rmdir /s /q dist 2>nul
 
-pyinstaller SmartRemux.spec --clean
+pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
 
 if errorlevel 1 (
     echo Lite version build failed!
@@ -133,10 +137,10 @@ if "%ISCC_PATH%"=="" (
     echo [7/7] Creating installer...
 
     REM Update installer version
-    powershell -Command "(Get-Content 'installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%APP_VERSION%\"' | Set-Content 'installer.iss'"
+    powershell -Command "(Get-Content 'packaging\\installer\\installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%APP_VERSION%\"' | Set-Content 'packaging\\installer\\installer.iss'"
 
     if not exist installer_output mkdir installer_output
-    "%ISCC_PATH%" "installer.iss"
+    "%ISCC_PATH%" "packaging\installer\installer.iss"
 
     if errorlevel 1 (
         echo WARNING: Installer creation failed
@@ -220,7 +224,7 @@ if not exist "ffprobe.exe" (
     goto menu
 )
 
-pyinstaller SmartRemux_Full.spec --clean
+pyinstaller packaging\pyinstaller\SmartRemux_Full.spec --clean
 
 if errorlevel 1 (
     echo Build failed!
@@ -284,7 +288,7 @@ echo Cleaned!
 
 echo.
 echo [3/4] Building application...
-pyinstaller SmartRemux.spec --clean
+pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
 
 if errorlevel 1 (
     echo Build failed!
@@ -347,7 +351,7 @@ if not exist "dist\SmartRemux.exe" (
     echo dist\SmartRemux.exe still not found. Attempting Lite build now...
     if exist build rmdir /s /q build 2>nul
     if exist dist rmdir /s /q dist 2>nul
-    pyinstaller SmartRemux.spec --clean
+    pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
     if errorlevel 1 (
         echo ERROR: Lite build failed during installer creation.
         pause
@@ -383,10 +387,10 @@ echo.
 echo [3/3] Creating installer...
 
 REM Update installer version
-powershell -Command "(Get-Content 'installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%APP_VERSION%\"' | Set-Content 'installer.iss'"
+powershell -Command "(Get-Content 'packaging\\installer\\installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%APP_VERSION%\"' | Set-Content 'packaging\\installer\\installer.iss'"
 
 if not exist installer_output mkdir installer_output
-"%ISCC_PATH%" "installer.iss"
+"%ISCC_PATH%" "packaging\installer\installer.iss"
 
 if errorlevel 1 (
     echo Installer creation failed!
@@ -473,16 +477,16 @@ REM Update version in memory
 set APP_VERSION=%NEW_VERSION%
 
 REM Update version in installer.iss file
-powershell -Command "(Get-Content 'installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%NEW_VERSION%\"' | Set-Content 'installer.iss'"
+powershell -Command "(Get-Content 'packaging\\installer\\installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%NEW_VERSION%\"' | Set-Content 'packaging\\installer\\installer.iss'"
 
 echo.
 echo Version updated to: %APP_VERSION%
 echo.
 echo The version has been updated in:
 echo   - Build menu (this session)
-echo   - installer.iss (for installer builds)
+echo   - packaging\installer\installer.iss (for installer builds)
 echo.
-echo Note: You may also want to update the version in video_remuxer_gui.py
+echo Note: You may also want to update the version in main.py
 echo       Line 69: self.setWindowTitle("SmartRemux v%APP_VERSION%")
 echo.
 pause
@@ -495,4 +499,5 @@ REM ========================================
 cls
 echo Thanks for using SmartRemux Build Menu!
 timeout /t 1 >nul
+popd
 exit

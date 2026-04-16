@@ -1,18 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from pathlib import Path
+
+ROOT_DIR = Path.cwd()
 
 # Read the app name from an environment variable, with a fallback default.
 app_name = os.environ.get('PYINSTALLER_APP_NAME', 'StpaRemuxer')
 
-datas = [('ICOtrans.ico', '.')]
-if os.path.exists('ffmpeg.exe'):
-    datas.append(('ffmpeg.exe', '.'))
-if os.path.exists('ffprobe.exe'):
-    datas.append(('ffprobe.exe', '.'))
+datas = [(str(ROOT_DIR / 'ICOtrans.ico'), '.')]
+if (ROOT_DIR / 'ffmpeg.exe').exists():
+    datas.append((str(ROOT_DIR / 'ffmpeg.exe'), '.'))
+if (ROOT_DIR / 'ffprobe.exe').exists():
+    datas.append((str(ROOT_DIR / 'ffprobe.exe'), '.'))
 
 a = Analysis(
-    ['video_remuxer_gui.py'],
-    pathex=[],
+    [str(ROOT_DIR / 'main.py')],
+    pathex=[str(ROOT_DIR)],
     binaries=[],
     datas=datas,
     hiddenimports=[],
@@ -44,5 +47,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='ICOtrans.ico',
+    icon=str(ROOT_DIR / 'ICOtrans.ico'),
 )

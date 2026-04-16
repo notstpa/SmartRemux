@@ -22,9 +22,9 @@ AllowNoIcons=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=.\installer_output
+OutputDir=..\..\installer_output
 OutputBaseFilename=SmartRemux_Setup_v{#MyAppVersion}
-SetupIconFile=ICOtrans.ico
+SetupIconFile=..\..\ICOtrans.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -40,10 +40,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\SmartRemux.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ffprobe.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ICOtrans.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\SmartRemux.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\ffprobe.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\ICOtrans.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]

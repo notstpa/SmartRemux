@@ -4,6 +4,7 @@ remuxer_settings.json
 build/
 dist/
 releases/
+installer_output/
 __pycache__/
 *.py[cod]
 *.pyo

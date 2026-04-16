@@ -1,17 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 # SmartRemux.spec - Full version with FFmpeg bundled
+from pathlib import Path
+
+ROOT_DIR = Path.cwd()
 
 block_cipher = None
 
 a = Analysis(
-    ['video_remuxer_gui.py'],
-    pathex=[],
+    [str(ROOT_DIR / 'main.py')],
+    pathex=[str(ROOT_DIR)],
     binaries=[
-        ('ffmpeg.exe', '.'),  # Bundle ffmpeg.exe
-        ('ffprobe.exe', '.'), # Bundle ffprobe.exe
+        (str(ROOT_DIR / 'ffmpeg.exe'), '.'),  # Bundle ffmpeg.exe
+        (str(ROOT_DIR / 'ffprobe.exe'), '.'), # Bundle ffprobe.exe
     ],
     datas=[
-        ('ICOtrans.ico', '.'),  # Include icon file
+        (str(ROOT_DIR / 'ICOtrans.ico'), '.'),  # Include icon file
     ],
     hiddenimports=[],
     hookspath=[],
@@ -46,6 +49,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='ICOtrans.ico',  # Application icon
-    manifest='app.manifest',  # Include the manifest file to fix drag and drop
+    icon=str(ROOT_DIR / 'ICOtrans.ico'),  # Application icon
+    manifest=str(ROOT_DIR / 'app.manifest'),  # Include the manifest file to fix drag and drop
 )
