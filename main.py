@@ -26,18 +26,20 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import (
     Qt, QThread, pyqtSignal, pyqtSlot, QTimer, QSettings, QDir,
-    QStandardPaths, QUrl, QMimeData, QMutex, QWaitCondition, QObject
+    QStandardPaths, QUrl, QMimeData, QMutex, QWaitCondition, QObject,
+    QPoint
 )
 from PyQt5.QtGui import (
     QIcon, QFont, QPalette, QColor, QPixmap, QImage, QClipboard,
-    QGuiApplication, QDesktopServices
+    QGuiApplication, QDesktopServices, QPainter, QPolygon
 )
 
 # =============================================================================
 # CONSTANTS AND CONFIGURATION
 # =============================================================================
-WINDOW_WIDTH = 575
-WINDOW_HEIGHT = 475
+WINDOW_WIDTH = 660
+WINDOW_HEIGHT = 560
+
 PROGRESS_UPDATE_INTERVAL = 100  # milliseconds
 MAX_QUEUE_MESSAGES_PER_UPDATE = 10  # Maximum messages to process per UI update
 FFPROBE_TIMEOUT = 5   # seconds (reduced for faster failure detection)
@@ -45,6 +47,287 @@ FPS_SCAN_TIMEOUT = 8  # seconds (reduced for faster failure detection)
 PROCESS_TIMEOUT = 3600  # seconds (1 hour) - timeout for individual file processing
 LOG_TEXT_HEIGHT = 8
 DEFAULT_TIMESCALE = "30"
+
+# Dark mode styling — softer near-black theme
+DARK_WINDOW_BG = "#181A1A"
+DARK_PANEL_BG = "#202328"
+DARK_INPUT_BG = "#2A2E36"
+DARK_INACTIVE_TAB_BG = "#1C1F22"
+DARK_BORDER = "#3A3F4A"
+DARK_SOFT_BORDER = "#323640"
+DARK_TEXT = "#F2F4F8"
+DARK_MUTED_TEXT = "#AEB4C0"
+DARK_DISABLED_TEXT = "#7A808C"
+DARK_BUTTON_BG = "#3A4150"
+DARK_BUTTON_HOVER_BG = "#465064"
+DARK_BUTTON_PRESSED_BG = "#2F3542"
+DARK_ACCENT = "#5b9cff"
+
+DARK_GROUPBOX_STYLESHEET = f"""
+    QGroupBox {{
+        background-color: {DARK_PANEL_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        border-radius: 8px;
+        margin-top: 12px;
+    }}
+    QGroupBox::title {{
+        background-color: transparent;
+        color: {DARK_TEXT};
+        font-weight: bold;
+        font-size: 9pt;
+        subcontrol-origin: margin;
+        left: 8px;
+        padding: 0 7px;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+    }}
+"""
+
+
+DARK_THEME_STYLESHEET = f"""
+    QMainWindow,
+    QDialog,
+    QMessageBox {{
+        background-color: {DARK_WINDOW_BG};
+        color: {DARK_TEXT};
+    }}
+    QWidget {{
+        background-color: {DARK_WINDOW_BG};
+        color: {DARK_TEXT};
+    }}
+    QMainWindow > QWidget {{
+        background-color: {DARK_WINDOW_BG};
+    }}
+    QTabWidget::pane {{
+        background-color: {DARK_WINDOW_BG};
+        border: 0;
+        border-top: 1px solid {DARK_BORDER};
+        top: 0;
+    }}
+    QTabWidget::tab-bar {{
+        left: 0;
+    }}
+    QTabBar::tab {{
+        background-color: {DARK_INACTIVE_TAB_BG};
+        color: {DARK_MUTED_TEXT};
+        border: 1px solid {DARK_SOFT_BORDER};
+        border-bottom: 1px solid {DARK_BORDER};
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        padding: 7px 15px;
+        margin-right: 2px;
+    }}
+    QTabBar::tab:selected {{
+        background-color: {DARK_PANEL_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        border-bottom: 1px solid {DARK_PANEL_BG};
+    }}
+    QTabBar::tab:hover {{
+        background-color: {DARK_BUTTON_HOVER_BG};
+        color: {DARK_TEXT};
+    }}
+    QGroupBox {{
+        background-color: {DARK_PANEL_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        border-radius: 8px;
+        margin-top: 12px;
+    }}
+    QGroupBox::title {{
+        background-color: transparent;
+        color: {DARK_TEXT};
+        font-weight: bold;
+        subcontrol-origin: margin;
+        left: 8px;
+        padding: 0 7px;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+    }}
+
+    QLabel,
+    QCheckBox,
+    QRadioButton {{
+        background-color: transparent;
+        color: {DARK_TEXT};
+    }}
+    QPushButton {{
+        background-color: {DARK_BUTTON_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        border-radius: 5px;
+        padding: 3px 8px;
+        min-height: 18px;
+    }}
+    QPushButton:hover {{
+        background-color: {DARK_BUTTON_HOVER_BG};
+        border-color: {DARK_MUTED_TEXT};
+    }}
+    QPushButton:pressed {{
+        background-color: {DARK_BUTTON_PRESSED_BG};
+    }}
+    QPushButton:disabled {{
+        background-color: {DARK_PANEL_BG};
+        color: {DARK_DISABLED_TEXT};
+        border-color: {DARK_SOFT_BORDER};
+    }}
+    QLineEdit,
+    QComboBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QTimeEdit,
+    QDateTimeEdit,
+    QTextEdit,
+    QTextBrowser {{
+        background-color: {DARK_INPUT_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        border-radius: 5px;
+        padding: 3px 7px;
+        min-height: 20px;
+        selection-background-color: {DARK_ACCENT};
+        selection-color: #ffffff;
+    }}
+    QComboBox {{
+        padding-right: 20px;
+        min-height: 24px;
+    }}
+    QComboBox::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 26px;
+        border-left: 1px solid {DARK_BORDER};
+        border-top-right-radius: 5px;
+        border-bottom-right-radius: 5px;
+        background-color: {DARK_BUTTON_BG};
+    }}
+    QComboBox::drop-down:hover {{
+        background-color: {DARK_BUTTON_HOVER_BG};
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {DARK_INPUT_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+        selection-background-color: {DARK_ACCENT};
+    }}
+    QProgressBar {{
+        background-color: {DARK_INPUT_BG};
+        color: {DARK_TEXT};
+        border: 1px solid {DARK_BORDER};
+    }}
+    QProgressBar::chunk {{
+        background-color: {DARK_ACCENT};
+    }}
+    QScrollArea,
+    QScrollArea > QWidget,
+    QScrollArea > QWidget > QWidget {{
+        background-color: {DARK_INPUT_BG};
+    }}
+    QScrollBar {{
+        background-color: {DARK_INPUT_BG};
+        border: none;
+    }}
+    QScrollBar::handle {{
+        background-color: {DARK_BORDER};
+        border-radius: 4px;
+    }}
+    QScrollBar::handle:hover {{
+        background-color: {DARK_MUTED_TEXT};
+    }}
+    QScrollBar::add-line,
+    QScrollBar::sub-line {{
+        background-color: {DARK_PANEL_BG};
+        border: none;
+    }}
+    QStatusBar {{
+        background-color: {DARK_WINDOW_BG};
+        color: {DARK_MUTED_TEXT};
+        border-top: 1px solid {DARK_BORDER};
+    }}
+"""
+
+def enable_windows_dark_title_bar(window):
+    """Ask Windows to use dark non-client area colors when the OS supports it."""
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+
+        hwnd = int(window.winId())
+        enabled = ctypes.c_int(1)
+        # Windows 10 1903+ uses 20; older supported builds used 19.
+        for attribute in (20, 19):
+            result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                ctypes.c_void_p(hwnd),
+                ctypes.c_uint(attribute),
+                ctypes.byref(enabled),
+                ctypes.sizeof(enabled),
+            )
+            if result == 0:
+                break
+    except Exception:
+        pass
+
+class StyledComboBox(QComboBox):
+    """Combo box with the app's dark dropdown arrow painted over the styled button area."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(DARK_TEXT))
+
+        center_x = self.width() - 13
+        center_y = self.height() // 2 + 1
+        arrow = QPolygon([
+            QPoint(center_x - 5, center_y - 3),
+            QPoint(center_x + 5, center_y - 3),
+            QPoint(center_x, center_y + 3),
+        ])
+        painter.drawPolygon(arrow)
+
+def make_option_row(control, text, help_callback=None):
+    """
+    Build a QHBoxLayout row containing: [control] [clickable label] [stretch] [? help button].
+    
+    The control (QCheckBox/QRadioButton) keeps its own text empty; the label is clickable.
+    The help button appears only if help_callback is provided.
+    Returns the QHBoxLayout, the label, and the help button (or None).
+    """
+    row = QHBoxLayout()
+    row.setSpacing(8)
+
+    # Clear the control's own text since we use a separate label
+    control.setText("")
+    control.setStyleSheet("")  # Reset to native styling
+    control.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    row.addWidget(control)
+
+    label = QLabel(text)
+    label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    label.setWordWrap(False)
+    label.mousePressEvent = lambda event, c=control: c.click()
+    row.addWidget(label)
+
+    # Stretch pushes the help button to the right edge of the group box
+    row.addStretch(1)
+
+    help_btn = None
+    if help_callback:
+        help_btn = QPushButton("?")
+        help_btn.setFixedWidth(26)
+        help_btn.setFixedHeight(24)
+        help_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        help_btn.clicked.connect(help_callback)
+        row.addWidget(help_btn)
+
+    return row, label, help_btn
+
+
 
 # File operation modes
 FILE_ACTION_MOVE = "move"
@@ -66,7 +349,7 @@ class RemuxApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SmartRemux v2.2.3")
+        self.setWindowTitle("SmartRemux")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         # Allow vertical resizing by not constraining maximum height
@@ -85,14 +368,14 @@ class RemuxApp(QMainWindow):
         self.scan_status_bar = QProgressBar()
         self.scan_status_bar.setRange(0, 100)
         self.scan_status_bar.setTextVisible(False)
-        self.scan_status_bar.setStyleSheet("""
-            QProgressBar { background: #e5e7eb; border: 0; height: 6px; border-radius: 3px; }
-            QProgressBar::chunk { background-color: #0078D7; border-radius: 3px; }
+        self.scan_status_bar.setStyleSheet(f"""
+            QProgressBar {{ background: {DARK_INPUT_BG}; border: 0; height: 6px; border-radius: 3px; }}
+            QProgressBar::chunk {{ background-color: {DARK_ACCENT}; border-radius: 3px; }}
         """)
         self.scan_status_bar.hide()
         try:
             sb = self.statusBar()
-            sb.setStyleSheet("QStatusBar{background:#fafafa;border-top:1px solid #ececec;}")
+            sb.setStyleSheet(f"QStatusBar{{background:{DARK_WINDOW_BG};color:{DARK_MUTED_TEXT};border-top:1px solid {DARK_BORDER};}}")
             # Hide label by default so the bar can span the width; keep for future if needed
             self.scan_status_label.hide()
             sb.addPermanentWidget(self.scan_status_bar, 1)
@@ -253,20 +536,7 @@ class RemuxApp(QMainWindow):
         source_output_group = QGroupBox("Import")
         # ADD THIS STYLESHEET for consistent, compact appearance
         # Modern stylesheet for a consistent, clean appearance
-        source_output_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        source_output_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(source_output_group)
 
         source_output_layout = QGridLayout(source_output_group)
@@ -300,19 +570,23 @@ class RemuxApp(QMainWindow):
         # --- Scanning Frame (Hidden - scanning happens automatically) ---
         self.scan_group = QGroupBox("Preparing files")
         # Cleaner, text-first appearance for scanning
-        self.scan_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #fafafa;
-                border: 1px solid #ececec;
+        self.scan_group.setStyleSheet(f"""
+            QGroupBox {{
+                background-color: {DARK_PANEL_BG};
+                color: {DARK_TEXT};
+                border: 1px solid {DARK_BORDER};
                 border-radius: 10px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
+                margin-top: 12px;
+            }}
+            QGroupBox::title {{
+                background-color: {DARK_PANEL_BG};
+                color: {DARK_TEXT};
                 font-weight: 600;
                 font-size: 10pt;
                 subcontrol-origin: margin;
+                left: 8px;
                 padding: 2px 6px;
-            }
+            }}
         """)
         # Hide the scan group - scanning will happen automatically in background
         self.scan_group.hide()
@@ -323,29 +597,29 @@ class RemuxApp(QMainWindow):
 
         # Header and subtle caption
         self.scan_header_label = QLabel("Preparing files")
-        self.scan_header_label.setStyleSheet("""
-            QLabel { font-size: 12pt; font-weight: 600; color: #111827; }
+        self.scan_header_label.setStyleSheet(f"""
+            QLabel {{ font-size: 12pt; font-weight: 600; color: {DARK_TEXT}; }}
         """)
         scan_layout.addWidget(self.scan_header_label)
 
         self.scan_caption_label = QLabel("Analyzing codecs and durations…")
-        self.scan_caption_label.setStyleSheet("""
-            QLabel { color: #6b7280; font-size: 9pt; }
+        self.scan_caption_label.setStyleSheet(f"""
+            QLabel {{ color: {DARK_MUTED_TEXT}; font-size: 9pt; }}
         """)
         scan_layout.addWidget(self.scan_caption_label)
 
         # Compact progress badge (text-only, no bar)
         self.label_scan_progress = QLabel("Scanning 0/0")
-        self.label_scan_progress.setStyleSheet("""
-            QLabel {
-                background-color: #eef2ff;
-                color: #1e40af;
-                border: 1px solid #c7d2fe;
+        self.label_scan_progress.setStyleSheet(f"""
+            QLabel {{
+                background-color: {DARK_INPUT_BG};
+                color: {DARK_ACCENT};
+                border: 1px solid {DARK_BORDER};
                 border-radius: 10px;
                 padding: 6px 10px;
                 margin-top: 4px;
                 width: 100%;
-            }
+            }}
         """)
         scan_layout.addWidget(self.label_scan_progress)
 
@@ -357,20 +631,7 @@ class RemuxApp(QMainWindow):
         self.progress_group = QGroupBox("Remux")
         # ADD THIS STYLESHEET for consistent, compact appearance
         # Modern stylesheet for a consistent, clean appearance
-        self.progress_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        self.progress_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(self.progress_group)
 
         progress_layout = QVBoxLayout(self.progress_group)
@@ -382,20 +643,7 @@ class RemuxApp(QMainWindow):
         current_activity_group = QGroupBox("Current Activity")
         # ADD THIS STYLESHEET for consistent, compact appearance
         # Modern stylesheet for a consistent, clean appearance
-        current_activity_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        current_activity_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         progress_layout.addWidget(current_activity_group)
 
         current_layout = QVBoxLayout(current_activity_group)
@@ -413,17 +661,17 @@ class RemuxApp(QMainWindow):
         self.progress_bar_total = QProgressBar()
         self.progress_bar_total.setRange(0, 100)
         self.progress_bar_total.setTextVisible(False)
-        self.progress_bar_total.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #c0c0c0;
+        self.progress_bar_total.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {DARK_BORDER};
                 border-radius: 5px;
-                background-color: #e8e8e8;
+                background-color: {DARK_INPUT_BG};
                 height: 12px;
-            }
-            QProgressBar::chunk {
-                background-color: #0078D7; /* A nice blue */
+            }}
+            QProgressBar::chunk {{
+                background-color: {DARK_ACCENT};
                 border-radius: 4px;
-            }
+            }}
         """)
         progress_layout.addWidget(self.progress_bar_total)
 
@@ -466,249 +714,158 @@ class RemuxApp(QMainWindow):
         layout.addStretch(1)
 
     def create_settings_widgets(self):
-        """Create widgets for the settings tab."""
+        """Create widgets for the settings tab using proper layout managers."""
         layout = QVBoxLayout(self.settings_tab)
-        layout.setSpacing(5)  # Reduce space between each QGroupBox
+        layout.setSpacing(6)
         layout.setContentsMargins(10, 10, 10, 10)
-
 
         # --- Output Format ---
         output_format_group = QGroupBox("Output Format")
-        # ADD THIS STYLESHEET to control the box's own margins and title padding
-        # Modern stylesheet for a consistent, clean appearance
-        output_format_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        output_format_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(output_format_group)
 
         format_layout = QHBoxLayout(output_format_group)
-        # CHANGE THIS to reduce the padding inside the box
-        # Values are (left, top, right, bottom)
-        format_layout.setContentsMargins(10, 15, 10, 5)
+        format_layout.setContentsMargins(10, 15, 10, 10)
+        format_layout.setSpacing(6)
         format_layout.addWidget(QLabel("Output format:"))
-        self.output_format_combo = QComboBox()
+        self.output_format_combo = StyledComboBox()
         self.output_format_combo.addItems(self.supported_formats['output'])
         self.output_format_combo.setCurrentText(self.output_format)
+        self.output_format_combo.setMinimumHeight(24)
         format_layout.addWidget(self.output_format_combo)
+        format_layout.addStretch(1)
         info_btn = QPushButton("?")
-        info_btn.setFixedWidth(25)
+        info_btn.setFixedWidth(26)
+        info_btn.setFixedHeight(24)
         info_btn.clicked.connect(self.show_output_format_info)
         format_layout.addWidget(info_btn)
-        format_layout.addStretch(1)  # MOVED: Now the stretch is at the end
+
 
         # --- File Management ---
         file_options_group = QGroupBox("Original File Management")
-        # ADD THIS STYLESHEET to control the box's own margins and title padding
-        # Modern stylesheet for a consistent, clean appearance
-        file_options_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        file_options_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(file_options_group)
 
         file_layout = QVBoxLayout(file_options_group)
-        file_layout.setSpacing(2)  # Reduce space between the radio buttons
-        # CHANGE THIS to reduce the padding inside the box
-        # Values are (left, top, right, bottom)
-        file_layout.setContentsMargins(10, 15, 10, 5)
+        file_layout.setContentsMargins(10, 15, 10, 10)
+        file_layout.setSpacing(6)
+
 
         self.file_action_group = QButtonGroup(self)
 
-        self.move_radio = QRadioButton("Move original to subfolder")
+        # Move radio row
+        self.move_radio = QRadioButton()
         self.move_radio.setChecked(self.file_action == FILE_ACTION_MOVE)
         self.file_action_group.addButton(self.move_radio)
-        file_layout.addWidget(self.move_radio)
+        row, _, _ = make_option_row(self.move_radio, "Move original to subfolder")
+        file_layout.addLayout(row)
 
-        self.keep_radio = QRadioButton("Keep original file in place (default)")
+        # Keep radio row
+        self.keep_radio = QRadioButton()
         self.keep_radio.setChecked(self.file_action == FILE_ACTION_KEEP)
         self.file_action_group.addButton(self.keep_radio)
-        file_layout.addWidget(self.keep_radio)
+        row, _, _ = make_option_row(self.keep_radio, "Keep original file in place (default)")
+        file_layout.addLayout(row)
 
-        delete_layout = QHBoxLayout()
-        delete_layout.setSpacing(2)  # Reduce spacing between elements
-        file_layout.addLayout(delete_layout)
-
-        self.delete_radio = QRadioButton("Delete original file")
+        # Delete radio row with help button and warning label
+        self.delete_radio = QRadioButton()
         self.delete_radio.setChecked(self.file_action == FILE_ACTION_DELETE)
         self.file_action_group.addButton(self.delete_radio)
-        delete_layout.addWidget(self.delete_radio)
+        delete_row = QHBoxLayout()
+        delete_row.setSpacing(8)
+        self.delete_radio.setText("")
+        self.delete_radio.setStyleSheet("")  # Reset to native styling
+        self.delete_radio.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        delete_row.addWidget(self.delete_radio)
+        delete_label = QLabel("Delete original file")
+        delete_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        delete_label.mousePressEvent = lambda event: self.delete_radio.click()
+        delete_row.addWidget(delete_label)
+        delete_warning = QLabel("(Not recommended)")
+        delete_warning.setStyleSheet("color: #ff8a8a; font-size: 8pt; background: transparent;")
+        delete_warning.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        delete_row.addWidget(delete_warning)
+        delete_row.addStretch(1)
+        delete_help = QPushButton("?")
+        delete_help.setFixedWidth(26)
+        delete_help.setFixedHeight(24)
+        delete_help.clicked.connect(self.show_file_management_info)
+        delete_row.addWidget(delete_help)
 
-        delete_info = QLabel("(Not recommended)")
-        delete_info.setStyleSheet("color: red; font-size: 8pt;")
-        delete_layout.addWidget(delete_info)
-
-        delete_info_btn = QPushButton("?")
-        delete_info_btn.setFixedWidth(25) # ADD THIS to keep the button small
-        delete_info_btn.clicked.connect(self.show_file_management_info)
-        delete_layout.addWidget(delete_info_btn)
-
-        delete_layout.addStretch(1) # ADD THIS to absorb extra space
+        file_layout.addLayout(delete_row)
 
         # --- Processing Options ---
         processing_group = QGroupBox("Processing Options")
-        # ADD THIS STYLESHEET to control the box's own margins and title padding
-        # Modern stylesheet for a consistent, clean appearance
-        processing_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        processing_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(processing_group)
 
         processing_layout = QVBoxLayout(processing_group)
-        # CHANGE THIS to reduce the padding inside the box
-        # Values are (left, top, right, bottom)
-        processing_layout.setContentsMargins(10, 15, 10, 5)
-        processing_layout.setSpacing(4) # Also reduce spacing between items in this group
+        processing_layout.setContentsMargins(10, 15, 10, 10)
+        processing_layout.setSpacing(4)
 
-        # Audio options
-        audio_layout = QHBoxLayout()
-        audio_layout.setSpacing(2)  # Reduce spacing between elements
-        self.audio_checkbox = QCheckBox("Include Audio Streams")
+        # Audio checkbox row
+        self.audio_checkbox = QCheckBox()
         self.audio_checkbox.setChecked(self.include_audio)
-        audio_layout.addWidget(self.audio_checkbox)
-        audio_info_btn = QPushButton("?")
-        audio_info_btn.setFixedWidth(25)  # Give the button a small, fixed width
-        audio_info_btn.clicked.connect(self.show_audio_info)
-        audio_layout.addWidget(audio_info_btn)
-        audio_layout.addStretch(1)  # Add stretch to push widgets to the left
-        processing_layout.addLayout(audio_layout)
+        row, _, _ = make_option_row(self.audio_checkbox, "Include Audio Streams",
+                                     help_callback=self.show_audio_info)
+        processing_layout.addLayout(row)
 
-        # Other processing options
-        timestamp_layout = QHBoxLayout()
-        timestamp_layout.setSpacing(2)  # Reduce spacing between elements
-        self.timestamp_checkbox = QCheckBox("Preserve original file timestamps")
+        # Timestamp checkbox row
+        self.timestamp_checkbox = QCheckBox()
         self.timestamp_checkbox.setChecked(self.preserve_timestamps)
-        timestamp_layout.addWidget(self.timestamp_checkbox)
-        timestamp_info_btn = QPushButton("?")
-        timestamp_info_btn.setFixedWidth(25)
-        timestamp_info_btn.clicked.connect(self.show_timestamp_info)
-        timestamp_layout.addWidget(timestamp_info_btn)
-        timestamp_layout.addStretch(1)  # Add stretch to push widgets to the left
-        processing_layout.addLayout(timestamp_layout)
+        row, _, _ = make_option_row(self.timestamp_checkbox, "Preserve original file timestamps",
+                                     help_callback=self.show_timestamp_info)
+        processing_layout.addLayout(row)
 
-        overwrite_layout = QHBoxLayout()
-        overwrite_layout.setSpacing(2)  # Reduce spacing between elements
-        self.overwrite_checkbox = QCheckBox("Overwrite existing output files")
+        # Overwrite checkbox row
+        self.overwrite_checkbox = QCheckBox()
         self.overwrite_checkbox.setChecked(self.overwrite_existing)
-        overwrite_layout.addWidget(self.overwrite_checkbox)
-        overwrite_info_btn = QPushButton("?")
-        overwrite_info_btn.setFixedWidth(25)
-        overwrite_info_btn.clicked.connect(self.show_overwrite_info)
-        overwrite_layout.addWidget(overwrite_info_btn)
-        overwrite_layout.addStretch(1)  # Add stretch to push widgets to the left
-        processing_layout.addLayout(overwrite_layout)
+        row, _, _ = make_option_row(self.overwrite_checkbox, "Overwrite existing output files",
+                                     help_callback=self.show_overwrite_info)
+        processing_layout.addLayout(row)
 
         # --- Advanced Processing Options ---
         advanced_group = QGroupBox("Advanced Processing Options")
-        # ADD THIS STYLESHEET to control the box's own margins and title padding
-        # Modern stylesheet for a consistent, clean appearance
-        advanced_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
+        advanced_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
         layout.addWidget(advanced_group)
 
         advanced_layout = QVBoxLayout(advanced_group)
-        # CHANGE THIS to reduce the padding inside the box
-        # Values are (left, top, right, bottom)
-        advanced_layout.setContentsMargins(10, 15, 10, 5)
+        advanced_layout.setContentsMargins(10, 15, 10, 10)
+        advanced_layout.setSpacing(4)
 
-        # File validation option
-        validate_layout = QHBoxLayout()
-        validate_layout.setSpacing(2)  # Reduce spacing between elements
-        self.validate_checkbox = QCheckBox("Validate files before processing")
+        # Validate checkbox row
+        self.validate_checkbox = QCheckBox()
         self.validate_checkbox.setChecked(self.validate_files)
-        validate_layout.addWidget(self.validate_checkbox)
-        validate_info_btn = QPushButton("?")
-        validate_info_btn.setFixedWidth(25)
-        validate_info_btn.clicked.connect(self.show_validation_info)
-        validate_layout.addWidget(validate_info_btn)
-        validate_layout.addStretch(1)  # Add stretch to push widgets to the left
-        advanced_layout.addLayout(validate_layout)
+        row, _, _ = make_option_row(self.validate_checkbox, "Validate files before processing",
+                                     help_callback=self.show_validation_info)
+        advanced_layout.addLayout(row)
 
-        # Command preview option
-        preview_layout = QHBoxLayout()
-        preview_layout.setSpacing(2)  # Reduce spacing between elements
-        self.preview_checkbox = QCheckBox("Show command preview before remuxing")
+        # Preview checkbox row
+        self.preview_checkbox = QCheckBox()
         self.preview_checkbox.setChecked(self.preview_commands)
-        preview_layout.addWidget(self.preview_checkbox)
-        preview_info_btn = QPushButton("?")
-        preview_info_btn.setFixedWidth(25)
-        preview_info_btn.clicked.connect(self.show_preview_info)
-        preview_layout.addWidget(preview_info_btn)
-        preview_layout.addStretch(1)  # Add stretch to push widgets to the left
-        advanced_layout.addLayout(preview_layout)
+        row, _, _ = make_option_row(self.preview_checkbox, "Show command preview before remuxing",
+                                     help_callback=self.show_preview_info)
+        advanced_layout.addLayout(row)
 
-        # Video Timescale (VFR fix) option
-        timescale_layout = QHBoxLayout()
-        timescale_layout.setSpacing(2)  # Reduce spacing between elements
-        self.timescale_checkbox = QCheckBox("Set video timescale")
+        # Timescale checkbox row
+        self.timescale_checkbox = QCheckBox()
         self.timescale_checkbox.setChecked(self.use_timescale_option)
-        timescale_layout.addWidget(self.timescale_checkbox)
-        timescale_info_btn = QPushButton("?")
-        timescale_info_btn.setFixedWidth(25)
-        timescale_info_btn.clicked.connect(self.show_timescale_info)
-        timescale_layout.addWidget(timescale_info_btn)
-        timescale_layout.addStretch(1)  # Add stretch to push widgets to the left
-        advanced_layout.addLayout(timescale_layout)
+        row, _, _ = make_option_row(self.timescale_checkbox, "Set video timescale",
+                                     help_callback=self.show_timescale_info)
+        advanced_layout.addLayout(row)
 
-        # --- REMOVED: Video Timescale (VFR fix) GroupBox ---
-        # The timescale option is now integrated into the Advanced Processing group.
-        # The QRadioButton is also removed as it's now redundant.
-        # The following UI elements are no longer needed:
-        # self.fps_group, self.timescale_options_container, self.timescale_source_radio
         # Settings management buttons
         settings_buttons_layout = QHBoxLayout()
+        settings_buttons_layout.setContentsMargins(0, 8, 0, 0)
         layout.addLayout(settings_buttons_layout)
 
-        settings_buttons_layout.addStretch(1)  # Add stretchable space on the left
+        settings_buttons_layout.addStretch(1)
 
         self.restore_defaults_btn = QPushButton("Restore Defaults")
         self.restore_defaults_btn.clicked.connect(self.restore_defaults)
         settings_buttons_layout.addWidget(self.restore_defaults_btn)
 
-        settings_buttons_layout.addStretch(1)  # Add stretchable space on the right
+        settings_buttons_layout.addStretch(1)
 
         # Hide Step 2 initially - only show after scanning files
         self.progress_group.hide()
@@ -718,6 +875,7 @@ class RemuxApp(QMainWindow):
 
         # Load saved settings after creating all widgets
         self.load_settings()
+
 
     def create_logs_widgets(self):
         """Create widgets for the logs tab."""
@@ -730,30 +888,23 @@ class RemuxApp(QMainWindow):
         log_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # ADD THIS STYLESHEET for consistent, compact appearance
         # Modern stylesheet for a consistent, clean appearance
-        log_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f7f7f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-top: 10px;
-            }
-            QGroupBox::title {
-                font-weight: bold;
-                font-size: 9pt;
-                subcontrol-origin: margin;
-                padding: 0 5px;
-            }
-        """)
-        layout.addWidget(log_group)
+        log_group.setStyleSheet(DARK_GROUPBOX_STYLESHEET)
+        layout.addWidget(log_group, 1)
 
         log_layout = QVBoxLayout(log_group)
         # ADJUST THESE MARGINS to reduce internal padding
         # Values are (left, top, right, bottom)
         log_layout.setContentsMargins(10, 15, 10, 10)
+        log_layout.setSpacing(8)
 
         # Button frame for log controls
         log_button_layout = QHBoxLayout()
         log_layout.addLayout(log_button_layout)
+
+        self.log_status_label = QLabel("")
+        self.log_status_label.setStyleSheet(f"color: {DARK_MUTED_TEXT};")
+        self.log_status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        log_button_layout.addWidget(self.log_status_label)
 
         log_button_layout.addStretch(1)  # Add stretchable space to push buttons to the right
 
@@ -771,29 +922,71 @@ class RemuxApp(QMainWindow):
 
         # Log text area
         self.log_text = QTextEdit()
-        self.log_text.setMinimumHeight(300)  # Back to original height
         self.log_text.setReadOnly(True)
         self.log_text.setFont(QFont("Consolas", 9))  # Better monospace font
         self.log_text.setLineWrapMode(QTextEdit.NoWrap)  # No word wrapping
+        self.log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.log_text.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.log_text.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.log_text.document().setDocumentMargin(8)
 
         # Set log text styling for better readability
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #ffffff; /* white */
-                color: #000000;            /* black text */
-                border: 1px solid #dee2e6; /* light border */
+        self.log_text.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {DARK_INPUT_BG};
+                color: {DARK_TEXT};
+                border: 1px solid {DARK_BORDER};
                 border-radius: 6px;
-                padding: 8px;
-                selection-background-color: #0078D7; /* Windows blue highlight */
+                padding: 0px;
+                selection-background-color: {DARK_ACCENT};
                 selection-color: #ffffff;
-            }
+            }}
+            QTextEdit QScrollBar:vertical {{
+                width: 12px;
+                margin: 1px 1px 1px 0px;
+            }}
+            QTextEdit QScrollBar:horizontal {{
+                height: 12px;
+                margin: 0px 1px 1px 1px;
+            }}
+            QTextEdit QScrollBar::handle:vertical,
+            QTextEdit QScrollBar::handle:horizontal {{
+                min-height: 20px;
+                min-width: 20px;
+            }}
         """)
 
-        log_layout.addWidget(self.log_text)
+        log_layout.addWidget(self.log_text, 1)
 
     def clear_log(self):
         """Clear the log output."""
         self.log_text.clear()
+        self.set_log_status("Log cleared")
+
+    def set_log_status(self, message, timeout_ms=1500):
+        """Show a temporary inline status in the Logs tab."""
+        self._log_status_token = getattr(self, "_log_status_token", 0) + 1
+        token = self._log_status_token
+        self.log_status_label.setText(message)
+        if timeout_ms:
+            QTimer.singleShot(timeout_ms, lambda: self.clear_log_status_if_current(token))
+
+    def clear_log_status_if_current(self, token):
+        """Clear inline log status only if no newer status has replaced it."""
+        if getattr(self, "_log_status_token", None) == token:
+            self.log_status_label.setText("")
+
+    def flash_copy_log_button(self, text, timeout_ms=1500):
+        """Temporarily change the Copy Log button text without blocking the UI."""
+        self._copy_log_button_token = getattr(self, "_copy_log_button_token", 0) + 1
+        token = self._copy_log_button_token
+        self.copy_log_btn.setText(text)
+        QTimer.singleShot(timeout_ms, lambda: self.reset_copy_log_button_if_current(token))
+
+    def reset_copy_log_button_if_current(self, token):
+        """Restore the Copy Log button text only if no newer flash is active."""
+        if getattr(self, "_copy_log_button_token", None) == token:
+            self.copy_log_btn.setText("Copy Log")
 
 
     def export_log_to_file(self):
@@ -802,7 +995,7 @@ class RemuxApp(QMainWindow):
             log_content = self.log_text.toPlainText()
 
             if not log_content.strip():
-                QMessageBox.information(self, "Info", "No log content to export.")
+                self.set_log_status("No log content to export")
                 return
 
             # Get current timestamp for filename
@@ -819,10 +1012,10 @@ class RemuxApp(QMainWindow):
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write(log_content)
 
-                QMessageBox.information(self, "Success", f"Log exported to:\n{filename}")
+                self.set_log_status(f"Log exported: {os.path.basename(filename)}", 2500)
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to export log: {str(e)}")
+            self.set_log_status(f"Failed to export log: {str(e)}", 4000)
 
     # =============================================================================
     # SETTINGS MANAGEMENT
@@ -1009,8 +1202,11 @@ class RemuxApp(QMainWindow):
                    "• Available in your system PATH\n\n"
                    "After adding the files, click 'Retry' to continue.")
 
+        enable_windows_dark_title_bar(msg)
+
         retry_btn = msg.addButton("Retry", QMessageBox.ActionRole)
         exit_btn = msg.addButton("Exit", QMessageBox.RejectRole)
+
 
         # print(f"[DEBUG] Showing missing tools dialog...")
         msg.exec_()
@@ -1644,9 +1840,19 @@ class RemuxApp(QMainWindow):
     # =============================================================================
     # INFO DIALOGS
     # =============================================================================
+    def show_info_dialog(self, title, text):
+        """Show an info dialog with a dark title bar on Windows."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(text)
+        msg.setStandardButtons(QMessageBox.Ok)
+        enable_windows_dark_title_bar(msg)
+        msg.exec_()
+
     def show_timescale_info(self):
         """Show timescale information dialog."""
-        QMessageBox.information(self, "Video Timescale Info",
+        self.show_info_dialog("Video Timescale Info",
             "This option can fix playback issues with Variable Frame Rate (VFR) videos.\n\n"
             "• Use original frame rate: Scans each file to find its FPS and uses that value (Recommended).\n\n"
             "• Force preset timescale: Forces a specific value for all videos. Useful if scanning fails or for special cases.\n\n"
@@ -1659,7 +1865,7 @@ class RemuxApp(QMainWindow):
 
     def show_validation_info(self):
         """Show validation information dialog."""
-        QMessageBox.information(self, "File Validation",
+        self.show_info_dialog("File Validation",
             "File validation uses ffprobe to check if video files are readable before processing.\n\n"
             "Benefits:\n"
             "• Prevents errors during remuxing\n"
@@ -1673,7 +1879,7 @@ class RemuxApp(QMainWindow):
 
     def show_preview_info(self):
         """Show preview information dialog."""
-        QMessageBox.information(self, "Command Preview",
+        self.show_info_dialog("Command Preview",
             "Command preview shows all FFmpeg commands before processing starts.\n\n"
             "This feature is useful for:\n"
             "• Understanding what the application will do\n"
@@ -1689,7 +1895,7 @@ class RemuxApp(QMainWindow):
 
     def show_output_format_info(self):
         """Show output format information dialog."""
-        QMessageBox.information(self, "Output Format",
+        self.show_info_dialog("Output Format",
             "Choose the format for remuxed video files.\n\n"
             "Available formats:\n"
             "• MP4: Most compatible, works on all devices\n"
@@ -1699,7 +1905,7 @@ class RemuxApp(QMainWindow):
 
     def show_file_management_info(self):
         """Show file management information dialog."""
-        QMessageBox.information(self, "Original File Management",
+        self.show_info_dialog("Original File Management",
             "Controls what happens to original MKV files after remuxing.\n\n"
             "• Move to subfolder: Creates 'Remuxed' folder and moves originals there\n"
             "• Keep in place: Original files remain in their current location\n"
@@ -1709,7 +1915,7 @@ class RemuxApp(QMainWindow):
 
     def show_audio_info(self):
         """Show audio information dialog."""
-        QMessageBox.information(self, "Audio Streams",
+        self.show_info_dialog("Audio Streams",
             "Controls whether audio tracks are included in the remuxed files.\n\n"
             "• Include Audio: Copies all audio streams from original to output\n"
             "• Exclude Audio: Creates video-only files (silent)\n\n"
@@ -1720,7 +1926,7 @@ class RemuxApp(QMainWindow):
 
     def show_timestamp_info(self):
         """Show timestamp information dialog."""
-        QMessageBox.information(self, "Preserve Timestamps",
+        self.show_info_dialog("Preserve Timestamps",
             "Copies the original file's creation and modification dates to the remuxed file.\n\n"
             "This helps maintain:\n"
             "• File organization in media libraries\n"
@@ -1731,12 +1937,13 @@ class RemuxApp(QMainWindow):
 
     def show_overwrite_info(self):
         """Show overwrite information dialog."""
-        QMessageBox.information(self, "Overwrite Existing Files",
+        self.show_info_dialog("Overwrite Existing Files",
             "Controls behavior when output files already exist.\n\n"
             "• Unchecked: Skip files if output already exists (default)\n"
             "• Checked: Overwrite existing files with new remux\n\n"
             "Use overwrite mode when re-processing the same files."
         )
+
 
     # =============================================================================
     # LOG MANAGEMENT
@@ -1752,13 +1959,13 @@ class RemuxApp(QMainWindow):
                 clipboard = QApplication.clipboard()
                 clipboard.setText(log_content)
 
-                # Show success message
-                QMessageBox.information(self, "Success", "Log output copied to clipboard!")
+                self.flash_copy_log_button("Copied ✓")
+                self.set_log_status("")
             else:
-                QMessageBox.information(self, "Info", "No log content to copy.")
+                self.set_log_status("No log content to copy")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to copy log to clipboard: {str(e)}")
+            self.set_log_status(f"Failed to copy log: {str(e)}", 4000)
 
     def show_completion_dialog(self, message, data, elapsed_time=None, scan_time=None):
         """Show completion dialog with options to open directory or close."""
@@ -1770,9 +1977,13 @@ class RemuxApp(QMainWindow):
         # Set window flags to ensure it stays on top and is properly layered
         dialog.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowCloseButtonHint)
 
+        # Apply dark title bar
+        enable_windows_dark_title_bar(dialog)
+
         # Ensure the dialog is raised to the top
         dialog.raise_()
         dialog.activateWindow()
+
 
         # Override close event to ensure UI reset happens
         dialog.closeEvent = lambda event: self.handle_completion_dialog_close(dialog, event)
@@ -1791,14 +2002,14 @@ class RemuxApp(QMainWindow):
         if scan_time:
             scan_time_label = QLabel(f"Scan time: {scan_time}")
             scan_time_label.setAlignment(Qt.AlignCenter)
-            scan_time_label.setStyleSheet("font-style: italic; color: gray;")
+            scan_time_label.setStyleSheet(f"font-style: italic; color: {DARK_MUTED_TEXT};")
             layout.addWidget(scan_time_label)
 
         # Remux elapsed time (if available)
         if elapsed_time:
             remux_time_label = QLabel(f"Remux time: {elapsed_time}")
             remux_time_label.setAlignment(Qt.AlignCenter)
-            remux_time_label.setStyleSheet("font-style: italic; color: gray;")
+            remux_time_label.setStyleSheet(f"font-style: italic; color: {DARK_MUTED_TEXT};")
             layout.addWidget(remux_time_label)
  
         # Add stretchable space to push content up
@@ -2749,13 +2960,16 @@ class RemuxApp(QMainWindow):
         # Text widget with scrollbar
         text_widget = QTextEdit()
         text_widget.setFont(QFont("Consolas", 9))  # Better monospace font
-        text_widget.setStyleSheet("""
-            QTextEdit {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
+        text_widget.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {DARK_INPUT_BG};
+                color: {DARK_TEXT};
+                border: 1px solid {DARK_BORDER};
                 border-radius: 4px;
                 padding: 8px;
-            }
+                selection-background-color: {DARK_ACCENT};
+                selection-color: #ffffff;
+            }}
         """)
         layout.addWidget(text_widget)
 
@@ -2883,9 +3097,29 @@ if __name__ == "__main__":
     font.setPointSize(9)
     app.setFont(font)
 
+    dark_palette = QPalette()
+    dark_palette.setColor(QPalette.Window, QColor(DARK_WINDOW_BG))
+    dark_palette.setColor(QPalette.WindowText, QColor(DARK_TEXT))
+    dark_palette.setColor(QPalette.Base, QColor(DARK_INPUT_BG))
+    dark_palette.setColor(QPalette.AlternateBase, QColor(DARK_PANEL_BG))
+    dark_palette.setColor(QPalette.ToolTipBase, QColor(DARK_PANEL_BG))
+    dark_palette.setColor(QPalette.ToolTipText, QColor(DARK_TEXT))
+    dark_palette.setColor(QPalette.Text, QColor(DARK_TEXT))
+    dark_palette.setColor(QPalette.Button, QColor(DARK_BUTTON_BG))
+    dark_palette.setColor(QPalette.ButtonText, QColor(DARK_TEXT))
+    dark_palette.setColor(QPalette.BrightText, QColor("#ffffff"))
+    dark_palette.setColor(QPalette.Highlight, QColor(DARK_ACCENT))
+    dark_palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    dark_palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor(DARK_DISABLED_TEXT))
+    dark_palette.setColor(QPalette.Disabled, QPalette.Text, QColor(DARK_DISABLED_TEXT))
+    dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(DARK_DISABLED_TEXT))
+    app.setPalette(dark_palette)
+    app.setStyleSheet(DARK_THEME_STYLESHEET)
+
     # print(f"[DEBUG] Number of top-level windows before creating main window: {len(app.topLevelWindows())}")
 
     window = RemuxApp()
+    enable_windows_dark_title_bar(window)
     # print(f"[DEBUG] Main window created: {window}")
     # print(f"[DEBUG] Number of top-level windows after creating main window: {len(app.topLevelWindows())}")
 
