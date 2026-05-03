@@ -30,31 +30,10 @@ SmartRemux-Installer
 - **File Size:** Largest due to full installer + FFmpeg
 
 # Build from Source
-1. Clone the repo and install dependencies.
-   ```shell
-   pip install -r requirements.txt
-   ```
-2. Download `ffmpeg.exe` and `ffprobe.exe` if you want to create the Full version.
-   - **Note:** The Full build requires `ffmpeg.exe` and `ffprobe.exe` in the repository root.
-   - If you only want the Lite build, you can skip those files.
-3. Run the build menu batch script.
-   ```shell
-   packaging\scripts\BUILD_MENU.bat
-   ```
-4. The output is generated in the `dist/` folder and copied into `releases/`.
+See [BUILDING.md](BUILDING.md) for full build instructions.
 
-## Build Options
-The batch menu lets you build:
-- Full version (with FFmpeg bundled)
-- Lite version (without FFmpeg bundled)
-- Installer only
-- Clean build folders
-
-Use the batch menu for local builds and keep the repo source files clean.
-
-## Repository Layout
-- `main.py`: main application source
-- `packaging/pyinstaller/`: PyInstaller spec files
-- `packaging/installer/`: Inno Setup installer script
-- `packaging/scripts/`: local build helper scripts
-- `releases/`: generated release artifacts
+Quick start:
+```shell
+pip install -r requirements.txt
+packaging\scripts\BUILD_MENU.bat
+```

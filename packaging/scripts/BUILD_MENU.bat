@@ -29,20 +29,22 @@ echo   SmartRemux Build Menu
 echo   Last Built Version: %APP_VERSION%
 echo ========================================
 echo.
-echo   1. Build App EXE
-echo   2. Build Installer
-echo   3. Build App + Installer
-echo   4. Clean Build Folders
-echo   5. Exit
+echo   1. Build Lite EXE
+echo   2. Build App EXE
+echo   3. Build Installer
+echo   4. Build All Three
+echo   5. Clean Build Folders
+echo   6. Exit
 echo.
 echo ========================================
-set /p choice="Enter your choice (1-5): "
+set /p choice="Enter your choice (1-6): "
 
-if "%choice%"=="1" goto build_exe
-if "%choice%"=="2" goto build_installer
-if "%choice%"=="3" goto build_all
-if "%choice%"=="4" goto clean_folders
-if "%choice%"=="5" goto exit_script
+if "%choice%"=="1" goto build_lite
+if "%choice%"=="2" goto build_app
+if "%choice%"=="3" goto build_installer
+if "%choice%"=="4" goto build_all
+if "%choice%"=="5" goto clean_folders
+if "%choice%"=="6" goto exit_script
 echo Invalid choice! Please try again.
 timeout /t 2 >nul
 goto menu
@@ -57,9 +59,77 @@ if "%BUILD_VERSION%"=="" set BUILD_VERSION=%APP_VERSION%
 exit /b 0
 
 REM ========================================
-REM Build App EXE (Lite version)
+REM Build Lite EXE only
 REM ========================================
-:build_exe
+:build_lite
+cls
+echo ========================================
+echo   Build Lite EXE
+echo ========================================
+echo.
+call :prompt_version
+
+echo [1/4] Checking PyInstaller...
+pyinstaller --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: PyInstaller not installed! Installing...
+    pip install pyinstaller
+    if errorlevel 1 (
+        echo Failed to install PyInstaller!
+        pause
+        goto menu
+    )
+)
+echo PyInstaller found!
+
+echo.
+echo [2/4] Cleaning previous builds...
+if exist build rmdir /s /q build 2>nul
+if exist dist rmdir /s /q dist 2>nul
+echo Cleaned!
+
+echo.
+echo [3/4] Building Lite version...
+pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
+
+if errorlevel 1 (
+    echo Build failed!
+    pause
+    goto menu
+)
+echo Lite version built!
+
+echo.
+echo [4/4] Creating release package...
+if not exist releases mkdir releases
+copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%-Lite.exe" >nul
+
+echo.
+echo Cleaning up temporary folders...
+if exist build rmdir /s /q build 2>nul
+if exist dist rmdir /s /q dist 2>nul
+echo Cleanup complete!
+
+REM Update version file after successful build
+echo %BUILD_VERSION%>"%VERSION_FILE%"
+set APP_VERSION=%BUILD_VERSION%
+
+echo.
+echo ========================================
+echo   BUILD COMPLETE!
+echo ========================================
+echo.
+echo Output: releases\SmartRemux.v%BUILD_VERSION%-Lite.exe
+echo.
+set /p open_releases="Open releases folder? (Y/N): "
+if /i "%open_releases%"=="Y" start "" "releases"
+pause
+goto menu
+
+REM ========================================
+REM Build App EXE (Full version with FFmpeg)
+REM ========================================
+:build_app
 cls
 echo ========================================
 echo   Build App EXE
@@ -87,15 +157,15 @@ if exist dist rmdir /s /q dist 2>nul
 echo Cleaned!
 
 echo.
-echo [3/4] Building application...
-pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
+echo [3/4] Building Full version (with FFmpeg)...
+pyinstaller packaging\pyinstaller\SmartRemux_Full.spec --clean
 
 if errorlevel 1 (
     echo Build failed!
     pause
     goto menu
 )
-echo Application built!
+echo Full version built!
 
 echo.
 echo [4/4] Creating release package...
@@ -103,7 +173,7 @@ if not exist releases mkdir releases
 copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%.exe" >nul
 
 echo.
-echo [5/5] Cleaning up temporary folders...
+echo Cleaning up temporary folders...
 if exist build rmdir /s /q build 2>nul
 if exist dist rmdir /s /q dist 2>nul
 echo Cleanup complete!
@@ -135,19 +205,19 @@ echo ========================================
 echo.
 call :prompt_version
 
-echo [1/4] Checking if dist\SmartRemux.exe exists...
+echo [1/5] Checking if dist\SmartRemux.exe exists...
 if not exist "dist\SmartRemux.exe" (
-    echo dist\SmartRemux.exe not found. Attempting Lite build now...
+    echo dist\SmartRemux.exe not found. Attempting Full build now...
     if exist build rmdir /s /q build 2>nul
     if exist dist rmdir /s /q dist 2>nul
-    pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
+    pyinstaller packaging\pyinstaller\SmartRemux_Full.spec --clean
     if errorlevel 1 (
-        echo ERROR: Lite build failed during installer creation.
+        echo ERROR: Full build failed during installer creation.
         pause
         goto menu
     )
     if not exist "dist\SmartRemux.exe" (
-        echo ERROR: dist\SmartRemux.exe still missing after Lite build.
+        echo ERROR: dist\SmartRemux.exe still missing after Full build.
         pause
         goto menu
     )
@@ -155,7 +225,7 @@ if not exist "dist\SmartRemux.exe" (
 echo Found dist\SmartRemux.exe
 
 echo.
-echo [2/4] Checking Inno Setup...
+echo [2/5] Checking Inno Setup...
 set ISCC_PATH=
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe
@@ -171,7 +241,7 @@ if "%ISCC_PATH%"=="" (
 echo Inno Setup found!
 
 echo.
-echo [3/4] Creating installer...
+echo [3/5] Creating installer...
 
 REM Update installer version
 powershell -Command "(Get-Content 'packaging\\installer\\installer.iss') -replace '#define MyAppVersion \".*\"', '#define MyAppVersion \"%BUILD_VERSION%\"' | Set-Content 'packaging\\installer\\installer.iss'"
@@ -190,7 +260,13 @@ if not exist releases mkdir releases
 move "installer_output\SmartRemux_Setup_v%BUILD_VERSION%.exe" "releases\SmartRemux.v%BUILD_VERSION%-Installer.exe" >nul 2>nul
 
 echo.
-echo [4/4] Cleaning up temporary folders...
+echo [4/5] Creating release packages...
+if not exist releases mkdir releases
+copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%.exe" >nul
+echo Release packages created!
+
+echo.
+echo [5/5] Cleaning up temporary folders...
 if exist build rmdir /s /q build 2>nul
 if exist dist rmdir /s /q dist 2>nul
 if exist installer_output rmdir /s /q installer_output 2>nul
@@ -205,7 +281,9 @@ echo ========================================
 echo   BUILD COMPLETE!
 echo ========================================
 echo.
-echo Output: releases\SmartRemux.v%BUILD_VERSION%-Installer.exe
+echo Outputs:
+echo   - releases\SmartRemux.v%BUILD_VERSION%.exe
+echo   - releases\SmartRemux.v%BUILD_VERSION%-Installer.exe
 echo.
 set /p open_releases="Open releases folder? (Y/N): "
 if /i "%open_releases%"=="Y" start "" "releases"
@@ -213,17 +291,17 @@ pause
 goto menu
 
 REM ========================================
-REM Build App + Installer
+REM Build All Three (Lite + App + Installer)
 REM ========================================
 :build_all
 cls
 echo ========================================
-echo   Build App + Installer
+echo   Build All Three
 echo ========================================
 echo.
 call :prompt_version
 
-echo [1/5] Checking PyInstaller...
+echo [1/6] Checking PyInstaller...
 pyinstaller --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: PyInstaller not installed! Installing...
@@ -237,32 +315,46 @@ if errorlevel 1 (
 echo PyInstaller found!
 
 echo.
-echo [2/5] Cleaning previous builds...
+echo [2/6] Cleaning previous builds...
 if exist build rmdir /s /q build 2>nul
 if exist dist rmdir /s /q dist 2>nul
 if exist releases rmdir /s /q releases 2>nul
 echo Cleaned!
 
 echo.
-echo [3/5] Creating release packages folder...
+echo [3/6] Creating release packages folder...
 mkdir releases 2>nul
 
 echo.
-echo [4/5] Building application...
+echo [4/6] Building Lite version...
 pyinstaller packaging\pyinstaller\SmartRemux.spec --clean
 
 if errorlevel 1 (
-    echo Build failed!
+    echo Lite build failed!
     pause
     goto menu
 )
-echo Application built!
+echo Lite version built!
 
-copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%.exe" >nul
-echo App EXE created!
+copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%-Lite.exe" >nul
+echo Lite EXE created!
 
 echo.
-echo [5/5] Creating installer...
+echo [5/6] Building Full version (with FFmpeg)...
+pyinstaller packaging\pyinstaller\SmartRemux_Full.spec --clean
+
+if errorlevel 1 (
+    echo Full build failed!
+    pause
+    goto menu
+)
+echo Full version built!
+
+copy "dist\SmartRemux.exe" "releases\SmartRemux.v%BUILD_VERSION%.exe" >nul
+echo Full EXE created!
+
+echo.
+echo [6/6] Creating installer...
 
 REM Check Inno Setup
 set ISCC_PATH=
@@ -307,11 +399,14 @@ echo   BUILD COMPLETE!
 echo ========================================
 echo.
 echo Output files in releases\:
+if exist "releases\SmartRemux.v%BUILD_VERSION%-Lite.exe" (
+    echo   1. SmartRemux.v%BUILD_VERSION%-Lite.exe
+)
 if exist "releases\SmartRemux.v%BUILD_VERSION%.exe" (
-    echo   1. SmartRemux.v%BUILD_VERSION%.exe
+    echo   2. SmartRemux.v%BUILD_VERSION%.exe
 )
 if exist "releases\SmartRemux.v%BUILD_VERSION%-Installer.exe" (
-    echo   2. SmartRemux.v%BUILD_VERSION%-Installer.exe
+    echo   3. SmartRemux.v%BUILD_VERSION%-Installer.exe
 )
 echo.
 set /p open_releases="Open releases folder? (Y/N): "
