@@ -14,6 +14,18 @@ import shutil
 import concurrent.futures
 from pathlib import Path
 
+REQUIRED_PYTHON = (3, 11)
+
+if not getattr(sys, "frozen", False) and sys.version_info[:2] != REQUIRED_PYTHON:
+    required_version = ".".join(map(str, REQUIRED_PYTHON))
+    current_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    print(
+        f"SmartRemux requires Python {required_version}. "
+        f"You are running Python {current_version} at {sys.executable}."
+    )
+    print("Run it with: python c:/Users/stopa/Desktop/SmartRemux/main.py")
+    sys.exit(1)
+
 # PyQt imports
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -27,12 +39,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import (
     Qt, QThread, pyqtSignal, pyqtSlot, QTimer, QSettings, QDir,
     QStandardPaths, QUrl, QMimeData, QMutex, QWaitCondition, QObject,
-    QPoint
 )
 from PyQt5.QtGui import (
-    QIcon, QFont, QPalette, QColor, QPixmap, QImage, QClipboard,
-    QGuiApplication, QDesktopServices, QPainter, QPolygon
+    QIcon, QFont, QGuiApplication, QDesktopServices
 )
+import qdarktheme
 
 # =============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -49,19 +60,73 @@ LOG_TEXT_HEIGHT = 8
 DEFAULT_TIMESCALE = "30"
 
 # Dark mode styling — softer near-black theme
-DARK_WINDOW_BG = "#181A1A"
-DARK_PANEL_BG = "#202328"
-DARK_INPUT_BG = "#2A2E36"
-DARK_INACTIVE_TAB_BG = "#1C1F22"
-DARK_BORDER = "#3A3F4A"
-DARK_SOFT_BORDER = "#323640"
-DARK_TEXT = "#F2F4F8"
-DARK_MUTED_TEXT = "#AEB4C0"
-DARK_DISABLED_TEXT = "#7A808C"
-DARK_BUTTON_BG = "#3A4150"
-DARK_BUTTON_HOVER_BG = "#465064"
-DARK_BUTTON_PRESSED_BG = "#2F3542"
-DARK_ACCENT = "#5b9cff"
+DARK_WINDOW_BG = "#171717"
+DARK_PANEL_BG = "#202020"
+DARK_INPUT_BG = "#2A2A2A"
+DARK_INACTIVE_TAB_BG = "#1C1C1C"
+DARK_BORDER = "#3A3A3A"
+DARK_SOFT_BORDER = "#303030"
+DARK_TEXT = "#F2F2F2"
+DARK_MUTED_TEXT = "#B8B8B8"
+DARK_DISABLED_TEXT = "#7A7A7A"
+DARK_BUTTON_BG = "#333333"
+DARK_BUTTON_HOVER_BG = "#404040"
+DARK_BUTTON_PRESSED_BG = "#292929"
+DARK_ACCENT = "#8E8E8E"
+
+QDARKTHEME_COLORS = {
+    "background": DARK_WINDOW_BG,
+    "background>panel": DARK_PANEL_BG,
+    "background>popup": "#242424",
+    "background>table": "#1E1E1E",
+    "background>textarea": DARK_INPUT_BG,
+    "background>title": "#1F1F1F",
+    "border": DARK_BORDER,
+    "border>input": DARK_BORDER,
+    "foreground": DARK_TEXT,
+    "foreground>disabled": DARK_DISABLED_TEXT,
+    "foreground>icon": DARK_TEXT,
+    "foreground>icon.unfocused": DARK_MUTED_TEXT,
+    "input.background": DARK_INPUT_BG,
+    "inputButton.hoverBackground": "#FFFFFF18",
+    "list.alternateBackground": "#FFFFFF0A",
+    "list.hoverBackground": "#FFFFFF12",
+    "menubar.selectionBackground": "#FFFFFF18",
+    "popupItem.checkbox.background": "#FFFFFF16",
+    "popupItem.selectionBackground": "#FFFFFF18",
+    "primary": DARK_ACCENT,
+    "primary>button.activeBackground": "#383838",
+    "primary>button.hoverBackground": "#454545",
+    "primary>defaultButton.activeBackground": "#7C7C7C",
+    "primary>defaultButton.hoverBackground": "#A0A0A0",
+    "primary>list.inactiveSelectionBackground": "#3A3A3A",
+    "primary>list.selectionBackground": "#555555",
+    "primary>progressBar.background": "#A5A5A5",
+    "primary>selection.background": "#555555",
+    "primary>sliderHandle.activeBackground": "#A5A5A5",
+    "primary>table.inactiveSelectionBackground": "#3A3A3A",
+    "primary>table.selectionBackground": "#555555",
+    "primary>textarea.selectionBackground": "#555555",
+    "scrollbar.background": "#242424",
+    "scrollbarSlider.activeBackground": "#737373",
+    "scrollbarSlider.background": "#555555",
+    "scrollbarSlider.disabledBackground": "#363636",
+    "scrollbarSlider.hoverBackground": "#666666",
+    "statusBar.background": DARK_WINDOW_BG,
+    "statusBarItem.activeBackground": "#3A3A3A",
+    "statusBarItem.hoverBackground": "#303030",
+    "tab.hoverBackground": "#303030",
+    "tabCloseButton.hoverBackground": "#3A3A3A",
+    "table.alternateBackground": "#262626",
+    "tableSectionHeader.background": "#2A2A2A",
+    "textarea.inactiveSelectionBackground": "#3A3A3A",
+    "toolbar.activeBackground": "#3A3A3A",
+    "toolbar.background": "#202020",
+    "toolbar.hoverBackground": "#303030",
+    "tree.inactiveIndentGuidesStroke": "#4A4A4A",
+    "tree.indentGuidesStroke": "#6A6A6A",
+    "treeSectionHeader.background": "#2A2A2A",
+}
 
 DARK_GROUPBOX_STYLESHEET = f"""
     QGroupBox {{
@@ -187,7 +252,7 @@ DARK_THEME_STYLESHEET = f"""
         padding: 3px 7px;
         min-height: 20px;
         selection-background-color: {DARK_ACCENT};
-        selection-color: #ffffff;
+        selection-color: {DARK_TEXT};
     }}
     QComboBox {{
         padding-right: 20px;
@@ -271,24 +336,7 @@ def enable_windows_dark_title_bar(window):
         pass
 
 class StyledComboBox(QComboBox):
-    """Combo box with the app's dark dropdown arrow painted over the styled button area."""
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(DARK_TEXT))
-
-        center_x = self.width() - 13
-        center_y = self.height() // 2 + 1
-        arrow = QPolygon([
-            QPoint(center_x - 5, center_y - 3),
-            QPoint(center_x + 5, center_y - 3),
-            QPoint(center_x, center_y + 3),
-        ])
-        painter.drawPolygon(arrow)
+    """App combo box hook; qdarktheme owns the visual styling."""
 
 def make_option_row(control, text, help_callback=None):
     """
@@ -782,7 +830,7 @@ class RemuxApp(QMainWindow):
         delete_label.mousePressEvent = lambda event: self.delete_radio.click()
         delete_row.addWidget(delete_label)
         delete_warning = QLabel("(Not recommended)")
-        delete_warning.setStyleSheet("color: #ff8a8a; font-size: 8pt; background: transparent;")
+        delete_warning.setStyleSheet(f"color: {DARK_MUTED_TEXT}; font-size: 8pt; background: transparent;")
         delete_warning.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         delete_row.addWidget(delete_warning)
         delete_row.addStretch(1)
@@ -939,7 +987,7 @@ class RemuxApp(QMainWindow):
                 border-radius: 6px;
                 padding: 0px;
                 selection-background-color: {DARK_ACCENT};
-                selection-color: #ffffff;
+                selection-color: {DARK_TEXT};
             }}
             QTextEdit QScrollBar:vertical {{
                 width: 12px;
@@ -2968,7 +3016,7 @@ class RemuxApp(QMainWindow):
                 border-radius: 4px;
                 padding: 8px;
                 selection-background-color: {DARK_ACCENT};
-                selection-color: #ffffff;
+                selection-color: {DARK_TEXT};
             }}
         """)
         layout.addWidget(text_widget)
@@ -3082,6 +3130,9 @@ if __name__ == "__main__":
     # print(f"[DEBUG] Script arguments: {sys.argv}")
     # print(f"[DEBUG] Current working directory: {os.getcwd()}")
 
+    # Qt5 needs this before QApplication is created for crisp qdarktheme SVG assets.
+    qdarktheme.enable_hi_dpi()
+
     # Check if QApplication already exists
     app = QApplication.instance()
     if app is None:
@@ -3097,24 +3148,77 @@ if __name__ == "__main__":
     font.setPointSize(9)
     app.setFont(font)
 
-    dark_palette = QPalette()
-    dark_palette.setColor(QPalette.Window, QColor(DARK_WINDOW_BG))
-    dark_palette.setColor(QPalette.WindowText, QColor(DARK_TEXT))
-    dark_palette.setColor(QPalette.Base, QColor(DARK_INPUT_BG))
-    dark_palette.setColor(QPalette.AlternateBase, QColor(DARK_PANEL_BG))
-    dark_palette.setColor(QPalette.ToolTipBase, QColor(DARK_PANEL_BG))
-    dark_palette.setColor(QPalette.ToolTipText, QColor(DARK_TEXT))
-    dark_palette.setColor(QPalette.Text, QColor(DARK_TEXT))
-    dark_palette.setColor(QPalette.Button, QColor(DARK_BUTTON_BG))
-    dark_palette.setColor(QPalette.ButtonText, QColor(DARK_TEXT))
-    dark_palette.setColor(QPalette.BrightText, QColor("#ffffff"))
-    dark_palette.setColor(QPalette.Highlight, QColor(DARK_ACCENT))
-    dark_palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    dark_palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor(DARK_DISABLED_TEXT))
-    dark_palette.setColor(QPalette.Disabled, QPalette.Text, QColor(DARK_DISABLED_TEXT))
-    dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(DARK_DISABLED_TEXT))
-    app.setPalette(dark_palette)
-    app.setStyleSheet(DARK_THEME_STYLESHEET)
+    qdarktheme.setup_theme(
+        theme="dark",
+        corner_shape="rounded",
+        custom_colors=QDARKTHEME_COLORS,
+        additional_qss=f"""
+            QMainWindow,
+            QDialog,
+            QMessageBox,
+            QWidget {{
+                background-color: {DARK_WINDOW_BG};
+                color: {DARK_TEXT};
+            }}
+            QTabWidget::pane {{
+                background-color: {DARK_WINDOW_BG};
+                border-top: 1px solid {DARK_BORDER};
+            }}
+            QTabBar::tab {{
+                background-color: {DARK_INACTIVE_TAB_BG};
+                color: {DARK_MUTED_TEXT};
+                border-color: {DARK_SOFT_BORDER};
+            }}
+            QTabBar::tab:selected {{
+                background-color: {DARK_PANEL_BG};
+                color: {DARK_TEXT};
+                border-color: {DARK_BORDER};
+            }}
+            QGroupBox {{
+                background-color: {DARK_PANEL_BG};
+                border: 1px solid {DARK_BORDER};
+            }}
+            QLineEdit,
+            QComboBox,
+            QSpinBox,
+            QDoubleSpinBox,
+            QTimeEdit,
+            QDateTimeEdit,
+            QTextEdit,
+            QTextBrowser {{
+                background-color: {DARK_INPUT_BG};
+                color: {DARK_TEXT};
+                border: 1px solid {DARK_BORDER};
+                selection-background-color: #555555;
+                selection-color: {DARK_TEXT};
+            }}
+            QPushButton {{
+                background-color: {DARK_BUTTON_BG};
+                color: {DARK_TEXT};
+                border: 1px solid {DARK_BORDER};
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_BUTTON_HOVER_BG};
+            }}
+            QPushButton:pressed {{
+                background-color: {DARK_BUTTON_PRESSED_BG};
+            }}
+            QProgressBar {{
+                background-color: {DARK_INPUT_BG};
+                border: 1px solid {DARK_BORDER};
+            }}
+            QProgressBar::chunk {{
+                background-color: {DARK_ACCENT};
+            }}
+            QToolTip {{
+                border: 1px solid {DARK_BORDER};
+                padding: 4px 6px;
+            }}
+            QStatusBar {{
+                border-top: 1px solid {DARK_BORDER};
+            }}
+        """,
+    )
 
     # print(f"[DEBUG] Number of top-level windows before creating main window: {len(app.topLevelWindows())}")
 
