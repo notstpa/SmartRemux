@@ -1,6 +1,6 @@
 # SmartRemux v3.0.0
 
-![Stpa Remuxer Screenshot](https://i.imgur.com/0cjFdRk.png)
+![Stpa Remuxer Screenshot](https://i.imgur.com/1p0vPXn.png)
 
 [Download Here](https://github.com/notstpa/stpa-remuxer/releases)
 # Features 
